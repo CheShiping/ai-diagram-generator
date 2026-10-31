@@ -32,15 +32,16 @@ export async function generateErFromRequirement(requirement: string): Promise<Ai
   return { data, warnings };
 }
 
-/** 已有实体 → 补充联系 */
+/** 已有实体 → 补充联系。hint 为用户明确指定「谁连谁」的补充说明。 */
 export async function generateRelationships(
   entities: AiEntity[],
+  hint = '',
 ): Promise<{ data: AiRelationship[]; warnings: string[] }> {
   const config = readLlmConfig();
 
   const content = await chat(config, [
     { role: 'system', content: GENERATE_RELATIONSHIPS_SYSTEM_PROMPT },
-    { role: 'user', content: buildGenerateRelationshipsUserPrompt(entities) },
+    { role: 'user', content: buildGenerateRelationshipsUserPrompt(entities, hint) },
   ]);
 
   const warnings: string[] = [];

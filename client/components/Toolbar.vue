@@ -16,6 +16,14 @@ const store = useDiagramStore();
 const aiLoading = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 
+/** AI 补关系弹窗：可留空（完全由 AI 推断），也可写明「谁连谁」 */
+const relDialogOpen = ref(false);
+const relHint = ref('');
+
+const entityNames = computed(() =>
+  store.diagram.nodes.filter((n) => n.type === 'entity').map((n) => n.name),
+);
+
 const canToggleComment = computed(() => store.sourceTables !== null);
 const exportDisabled = computed(() => !store.hasDiagram);
 
@@ -34,11 +42,25 @@ function onLayoutChange(value: LayoutKind): void {
   store.setLayout(value);
 }
 
-async function addRelationships(): Promise<void> {
+function openRelationships(): void {
   if (!store.hasDiagram) {
     ElMessage.warning('请先生成 ER 图');
     return;
   }
+  if (store.entityCount < 2) {
+    ElMessage.warning('至少需要 2 个实体才能推断联系');
+    return;
+  }
+  relDialogOpen.value = true;
+}
+
+/** 点击实体名标签，追加到补充说明里，保证名字与图中一致 */
+function insertEntityName(name: string): void {
+  const current = relHint.value.trim();
+  relHint.value = current ? `${current} ${name} ` : `${name} `;
+}
+
+async function submitRelationships(): Promise<void> {
   const entities = diagramToAiEntities(store.diagram);
   if (entities.length < 2) {
     ElMessage.warning('至少需要 2 个实体才能推断联系');
@@ -47,9 +69,12 @@ async function addRelationships(): Promise<void> {
 
   aiLoading.value = true;
   try {
-    const { relationships, warnings } = await generateRelationships(entities);
+    const { relationships, warnings } = await generateRelationships(entities, relHint.value);
     const added = store.appendRelationships(relationships);
     warnings.forEach((w) => store.pushWarning(w));
+
+    relDialogOpen.value = false;
+    relHint.value = '';
 
     if (added > 0) {
       ElMessage.success(`已补充 ${added} 条联系`);
@@ -131,7 +156,7 @@ async function onFileChange(event: Event): Promise<void> {
         @change="onFileChange"
       />
       <el-button size="small" @click="pickFile">导入 .drawio</el-button>
-      <el-button size="small" :loading="aiLoading" :disabled="!store.hasDiagram" @click="addRelationships">
+      <el-button size="small" :disabled="!store.hasDiagram" @click="openRelationships">
         AI 补关系
       </el-button>
       <el-button size="small" :disabled="!store.hasDiagram" @click="emit('fit')">适配视图</el-button>
@@ -151,6 +176,51 @@ async function onFileChange(event: Event): Promise<void> {
     </div>
 
     <div class="meta">{{ layoutLabel }} · {{ store.entityCount }} 个实体</div>
+
+    <el-dialog
+      v-model="relDialogOpen"
+      title="AI 补关系"
+      width="560px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <div class="rel-dialog">
+        <p class="rel-tip">
+          可选：写明需要补充的「谁连谁」，AI 会优先按你的描述添加；留空则完全由 AI 推断。
+        </p>
+        <p class="rel-example">
+          例：订单明细 多对一 商品（按 商品ID 关联）<br />
+          会话知识库 多对一 知识库；向量存储 对 知识库题目 多对一
+        </p>
+        <el-input
+          v-model="relHint"
+          type="textarea"
+          :rows="5"
+          resize="none"
+          maxlength="2000"
+          show-word-limit
+          placeholder="例如：订单明细 多对一 商品；会话知识库 多对一 知识库。不写则仅让 AI 自动推断。"
+        />
+        <div v-if="entityNames.length > 0" class="rel-entities">
+          <span class="rel-entities-label">图中实体（点击插入名称）：</span>
+          <el-tag
+            v-for="name in entityNames"
+            :key="name"
+            size="small"
+            class="rel-tag"
+            @click="insertEntityName(name)"
+          >
+            {{ name }}
+          </el-tag>
+        </div>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="relDialogOpen = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="aiLoading" @click="submitRelationships">
+          开始补关系
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -197,5 +267,49 @@ async function onFileChange(event: Event): Promise<void> {
   font-size: 12px;
   color: #92a1b6;
   white-space: nowrap;
+}
+
+.rel-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rel-tip {
+  margin: 0;
+  font-size: 12px;
+  color: #5b6b81;
+  line-height: 1.7;
+}
+
+.rel-example {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #92a1b6;
+  line-height: 1.8;
+  background: #f6f9fd;
+  border-radius: 6px;
+}
+
+.rel-entities {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.rel-entities-label {
+  font-size: 12px;
+  color: #92a1b6;
+}
+
+.rel-tag {
+  cursor: pointer;
+}
+
+.rel-tag:hover {
+  color: var(--el-color-primary);
+  border-color: currentColor;
 }
 </style>

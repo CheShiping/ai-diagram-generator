@@ -86,10 +86,12 @@ export async function generateEr(prompt: string): Promise<{ result: AiResult; wa
   return { result: res.data!, warnings: res.warnings ?? [] };
 }
 
-/** 已有实体 → 补充联系 */
+/** 已有实体 → 补充联系。hint 用于明确指定「谁连谁」。 */
 export async function generateRelationships(
   entities: AiEntity[],
+  hint = '',
 ): Promise<{ relationships: AiRelationship[]; warnings: string[] }> {
-  const res = await post<AiRelationship[]>('/ai/generate-relationships', { entities });
+  const body = hint.trim() ? { entities, hint: hint.trim() } : { entities };
+  const res = await post<AiRelationship[]>('/ai/generate-relationships', body);
   return { relationships: res.data ?? [], warnings: res.warnings ?? [] };
 }

@@ -98,7 +98,11 @@ export function createApiRouter(): Router {
         throw new HttpError(400, '至少需要 2 个有效实体才能推断联系');
       }
 
-      const { data, warnings } = await generateRelationships(sanitized);
+      // 用户明确指定「谁连谁」的补充说明（可选）
+      const hint = readString(req.body?.hint).trim();
+      if (hint.length > 2000) throw new HttpError(400, '补充说明过长，请控制在 2000 字以内');
+
+      const { data, warnings } = await generateRelationships(sanitized, hint);
       res.json(ok(data, { warnings }));
     }),
   );

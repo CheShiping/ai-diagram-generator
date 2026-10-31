@@ -34,7 +34,7 @@ interface ChatMessage {
   content: string;
 }
 
-const TIMEOUT_MS = 90_000;
+const TIMEOUT_MS = 300_000;
 
 /**
  * 请求模型并返回纯文本内容。

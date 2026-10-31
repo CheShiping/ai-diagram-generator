@@ -48,14 +48,32 @@ export const GENERATE_RELATIONSHIPS_SYSTEM_PROMPT = `你是数据库建模专家
 4. text 是联系名（动词或名词短语），不可为空。
 5. source 和 target 必须严格等于给定实体列表中的 name。
 6. 只输出实体之间真实合理的业务联系；没有合理联系时输出 { "relationships": [] }，不要勉强凑数。
-7. 不要输出实体本身，也不要输出属性定义（除非联系自带属性，可放在 attributes）。`;
+7. 不要输出实体本身，也不要输出属性定义（除非联系自带属性，可放在 attributes）。
+8. 用户还可能给出「必须补充的联系」说明：说明里明确点名了两个实体的，必须在 relationships 中输出对应联系，方向（谁是多端）与联系名以用户描述为准；source / target 仍须使用给定实体列表里的 name。只有说明里提到、但实体列表中不存在的对象才可以忽略。`;
 
-export function buildGenerateRelationshipsUserPrompt(entities: unknown): string {
-  return `已有实体及其属性如下：
+export function buildGenerateRelationshipsUserPrompt(entities: unknown, hint = ''): string {
+  const base = `已有实体及其属性如下：
 
 """
 ${JSON.stringify(entities, null, 2)}
 """
 
 请补充实体之间缺失的联系，只返回 JSON。`;
+
+  const instruction = hint.trim();
+  if (!instruction) return base;
+
+  return `已有实体及其属性如下：
+
+"""
+${JSON.stringify(entities, null, 2)}
+"""
+
+用户明确要求补充以下联系（必须全部输出；方向、联系名以用户描述为准，source / target 用上面列表中的 name 逐字对应）：
+
+"""
+${instruction}
+"""
+
+请先输出上述明确要求的联系，再补充其它必要的联系，只返回 JSON。`;
 }

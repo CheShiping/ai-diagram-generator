@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { FullScreen, ScaleToOriginal } from '@element-plus/icons-vue';
 import { getStoredAccessCode, setStoredAccessCode } from '@/http/api';
 import ErCanvas from '@/components/ErCanvas.vue';
 import InputPanel from '@/components/InputPanel.vue';
@@ -18,6 +19,20 @@ import { useDiagramStore } from '@/stores/diagram';
 const store = useDiagramStore();
 const canvasRef = ref<InstanceType<typeof ErCanvas> | null>(null);
 const exporting = ref(false);
+
+/** 画布全屏：只隐藏左侧输入栏，标题栏与工具栏保留，整个窗口内放大画布 */
+const immersive = ref(false);
+
+function toggleFullscreen(): void {
+  immersive.value = !immersive.value;
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && immersive.value) immersive.value = false;
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
 async function handleExport(kind: 'drawio' | 'png' | 'svg'): Promise<void> {
   const svg = canvasRef.value?.getSvg();
@@ -85,7 +100,7 @@ function clearDiagram(): void {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div :class="['app-shell', { immersive }]">
     <header class="app-header">
       <div class="brand">
         <span class="logo">ER</span>
@@ -114,6 +129,19 @@ function clearDiagram(): void {
             :layout-kind="store.layoutKind"
             :show-attributes="store.showAttributes"
           />
+          <button
+            type="button"
+            class="fullscreen-btn"
+            :title="immersive ? '退出全屏（Esc）' : '全屏编辑'"
+            :aria-label="immersive ? '退出全屏' : '全屏编辑'"
+            @click="toggleFullscreen"
+          >
+            <el-icon>
+              <ScaleToOriginal v-if="immersive" />
+              <FullScreen v-else />
+            </el-icon>
+            <span>{{ immersive ? '退出全屏' : '全屏' }}</span>
+          </button>
           <div v-if="exporting" class="exporting-mask">正在导出…</div>
         </div>
       </section>
@@ -205,6 +233,39 @@ function clearDiagram(): void {
   flex: 1;
   min-height: 0;
   position: relative;
+}
+
+/* 全屏模式：隐藏左侧输入栏，画布铺满窗口剩余空间（标题栏与工具栏保留） */
+.app-shell.immersive .side {
+  display: none;
+}
+
+.fullscreen-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  background: #ffffff;
+  border: 1px solid #dce6f2;
+  border-radius: 6px;
+  color: #4a5a70;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(31, 45, 61, 0.08);
+}
+
+.fullscreen-btn:hover {
+  border-color: #3d7eff;
+  color: #3d7eff;
+}
+
+.fullscreen-btn .el-icon {
+  font-size: 14px;
 }
 
 .exporting-mask {
