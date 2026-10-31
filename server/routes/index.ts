@@ -4,7 +4,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import type { AiEntity } from '../../shared/er-model';
 import { HttpError, fail, ok } from '../http';
 import { createGuard } from '../middleware/guard';
-import { generateErFromRequirement, generateRelationships } from '../services/ai';
+import { generateErCompletion, generateErFromRequirement, generateRelationships } from '../services/ai';
 import { parseSqlToTables } from '../services/sql-parser';
 
 type AsyncHandler = (req: Request, res: Response) => Promise<void>;
@@ -17,6 +17,23 @@ function asyncHandler(fn: AsyncHandler) {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+/** 清洗前端传来的实体列表（名称 + 已有属性） */
+function sanitizeEntities(raw: unknown): AiEntity[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
+    .map((e) => ({
+      name: readString(e.name).trim(),
+      attributes: Array.isArray(e.attributes)
+        ? (e.attributes as unknown[])
+            .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+            .map((a) => ({ name: readString(a.name).trim(), primaryKey: Boolean(a.primaryKey) }))
+            .filter((a) => a.name)
+        : [],
+    }))
+    .filter((e) => e.name);
 }
 
 export function createApiRouter(): Router {
@@ -61,46 +78,60 @@ export function createApiRouter(): Router {
     asyncHandler(async (req, res) => {
       const prompt = readString(req.body?.prompt).trim();
       if (!prompt) throw new HttpError(400, '请提供需求描述（字段 prompt）');
-      if (prompt.length > 10000) throw new HttpError(400, '需求描述过长，请控制在 10000 字以内');
+      if (prompt.length > 100000) throw new HttpError(400, '需求描述过长，请控制在 10000 字以内');
 
       const { data, warnings } = await generateErFromRequirement(prompt);
       res.json(ok(data, { warnings }));
     }),
   );
 
-  /** 已有实体 → 补充联系 */
+  /** 已有实体 → 补充联系 + 描述中提到但图中没有的属性 */
+  router.post(
+    '/ai/complete-er',
+    guard,
+    asyncHandler(async (req, res) => {
+      const entitiesRaw = req.body?.entities;
+      if (!Array.isArray(entitiesRaw) || entitiesRaw.length === 0) {
+        throw new HttpError(400, '请提供实体列表（字段 entities）');
+      }
+      if (entitiesRaw.length > 40) {
+        throw new HttpError(400, '实体数量过多，请控制在 40 个以内');
+      }
+
+      const entities = sanitizeEntities(entitiesRaw);
+      if (entities.length === 0) {
+        throw new HttpError(400, '请提供至少 1 个有效实体才能补全');
+      }
+
+      const hint = readString(req.body?.hint).trim();
+      if (hint.length > 20000) throw new HttpError(400, '补充说明过长，请控制在 20000 字以内');
+
+      const { data, warnings } = await generateErCompletion(entities, hint);
+      res.json(ok(data, { warnings }));
+    }),
+  );
+
+  /** 已有实体 → 补充联系（兼容旧接口，不返回属性补丁） */
   router.post(
     '/ai/generate-relationships',
     guard,
     asyncHandler(async (req, res) => {
-      const entities = req.body?.entities;
-      if (!Array.isArray(entities) || entities.length === 0) {
+      const entitiesRaw = req.body?.entities;
+      if (!Array.isArray(entitiesRaw) || entitiesRaw.length === 0) {
         throw new HttpError(400, '请提供实体列表（字段 entities）');
       }
-      if (entities.length > 40) {
+      if (entitiesRaw.length > 40) {
         throw new HttpError(400, '实体数量过多，请控制在 40 个以内');
       }
 
-      const sanitized: AiEntity[] = entities
-        .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
-        .map((e) => ({
-          name: readString(e.name).trim(),
-          attributes: Array.isArray(e.attributes)
-            ? (e.attributes as unknown[])
-                .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
-                .map((a) => ({ name: readString(a.name).trim(), primaryKey: Boolean(a.primaryKey) }))
-                .filter((a) => a.name)
-            : [],
-        }))
-        .filter((e) => e.name);
-
+      const sanitized = sanitizeEntities(entitiesRaw);
       if (sanitized.length < 2) {
         throw new HttpError(400, '至少需要 2 个有效实体才能推断联系');
       }
 
       // 用户明确指定「谁连谁」的补充说明（可选）
       const hint = readString(req.body?.hint).trim();
-      if (hint.length > 2000) throw new HttpError(400, '补充说明过长，请控制在 2000 字以内');
+      if (hint.length > 20000) throw new HttpError(400, '补充说明过长，请控制在 2000 字以内');
 
       const { data, warnings } = await generateRelationships(sanitized, hint);
       res.json(ok(data, { warnings }));

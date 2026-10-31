@@ -15,7 +15,7 @@
 | SQL 建表 | 后端用 `@guanmingchiu/sqlparser-ts`（datafusion-sqlparser-rs 的 WASM 绑定）解析 MySQL AST，提取表名、中文 `COMMENT`、主键、`FOREIGN KEY`（含 `ALTER TABLE ... ADD CONSTRAINT` 形式）。外键列不再重复画成属性；「恰好两个外键、指向两张不同的表、且没有被别的表引用」的关联表会直接画成多对多联系菱形，其余列挂成菱形上的属性 |
 | 自然语言 | 后端调用 OpenAI 兼容的 Chat Completions，把需求转成结构化实体/联系 JSON |
 | 导入 .drawio | 解析 draw.io 文件（未压缩 XML 与默认的 base64+deflate 压缩格式均可），按形状还原实体/属性/联系、`<u>` 主键与原始排版 |
-| AI 补关系 | 基于当前图里的实体，让模型推断缺失的联系并合并进图 |
+| AI 补全 | 基于当前图里的实体与属性，推断缺失联系，并补充业务描述中提到、但图中没有的属性；同名属性自动跳过，已有主键的实体不会新增第二个主键 |
 
 | 输出 | 说明 |
 |---|---|
@@ -23,7 +23,7 @@
 | PNG | 2 倍分辨率位图 |
 | SVG | 矢量图 |
 
-布局默认 **智能布局**（复刻 huahub）：实体作为 hub，属性填在联系之间的扇形空隙里，联系菱形落在两实体的轴线上，再做物理迭代、交叉最小化与全局松弛。另有 **环形网格**、**力导向**（d3-force）、**分层**（elkjs layered）可切换。从 draw.io 导入后额外提供「导入原位置」，保留文件里的坐标。
+布局默认 **智能布局**（复刻 huahub）：实体作为 hub，联系菱形落在两实体的轴线上，属性按联系方向分槽、由内向外扫描半径并避让节点与连线，十几个到二十几个属性会贴着矩形形成紧凑的多层环，再做物理迭代与交叉最小化。另有 **环形网格**、**力导向**（d3-force）、**分层**（elkjs layered）可切换。从 draw.io 导入后额外提供「导入原位置」，保留文件里的坐标。
 
 ## 快速开始
 
@@ -35,7 +35,7 @@ npm run dev               # 同时启动后端(3001) 与前端(5173)
 
 打开 http://127.0.0.1:5173 。
 
-> SQL 模式不依赖大模型，`.env` 不填也能用；自然语言模式与 AI 补关系需要配置模型。
+> SQL 模式不依赖大模型，`.env` 不填也能用；自然语言模式与 AI 补全需要配置模型。
 
 ### 环境变量
 
@@ -60,8 +60,12 @@ POST /api/ai/generate-er              { prompt: string }
   → data: { entities: [{ name, attributes: [{ name, primaryKey }] }],
             relationships: [{ source, target, type, text, attributes }] }
 
-POST /api/ai/generate-relationships    { entities: [{ name, attributes }] }
-  → data: [{ source, target, type, text, attributes }]
+POST /api/ai/complete-er              { entities: [{ name, attributes }], hint?: string }
+  → data: { relationships: [{ source, target, type, text, attributes }],
+            attributes: [{ entity, attributes: [{ name, primaryKey }] }] }
+
+POST /api/ai/generate-relationships    { entities: [{ name, attributes }], hint?: string }
+  → data: [{ source, target, type, text, attributes }]   // 旧接口，仅返回联系
 
 GET  /api/health
 ```

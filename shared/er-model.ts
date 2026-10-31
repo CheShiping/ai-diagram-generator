@@ -96,6 +96,18 @@ export interface AiResult {
   relationships: AiRelationship[];
 }
 
+/** AI 为已有实体补充缺失属性的补丁 */
+export interface AiAttributePatch {
+  entity: string;
+  attributes: AiAttribute[];
+}
+
+/** AI 补全：联系 + 属性补丁 */
+export interface AiCompletionResult {
+  relationships: AiRelationship[];
+  attributes: AiAttributePatch[];
+}
+
 /* ------------------------------------------------------------------ */
 /* 转换：SQL 表结构 → 陈式图                                            */
 /* ------------------------------------------------------------------ */
@@ -345,7 +357,7 @@ export function aiToDiagram(result: AiResult): DiagramConvertResult {
 }
 
 /* ------------------------------------------------------------------ */
-/* 反向：图模型 → AI 补关系所需的实体列表                                */
+/* 反向：图模型 → AI 补全所需的实体列表                                */
 /* ------------------------------------------------------------------ */
 
 export function diagramToAiEntities(diagram: ErDiagram): AiEntity[] {
@@ -359,7 +371,7 @@ export function diagramToAiEntities(diagram: ErDiagram): AiEntity[] {
     }));
 }
 
-/** 已存在的实体对，用于去重 AI 补关系结果 */
+/** 已存在的实体对，用于去重 AI 补全结果 */
 export function existingEntityPairs(diagram: ErDiagram): Set<string> {
   const idToName = new Map(diagram.nodes.filter((n) => n.type === 'entity').map((n) => [n.id, n.name]));
   const pairs = new Set<string>();
@@ -375,4 +387,94 @@ export function existingEntityPairs(diagram: ErDiagram): Set<string> {
     }
   }
   return pairs;
+}
+
+/* ------------------------------------------------------------------ */
+/* AI 属性补全 → 合并进当前图                                            */
+/* ------------------------------------------------------------------ */
+
+function attributeNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * 把 AI 建议的缺失属性并入图中。
+ *  - 只处理图中已存在的实体；
+ *  - 与实体现有属性重名的会被跳过；
+ *  - 实体已有主键时，新增属性强制不是主键，避免出现多个主键。
+ */
+export function appendAttributesToDiagram(
+  diagram: ErDiagram,
+  patches: AiAttributePatch[],
+): { diagram: ErDiagram; added: number; warnings: string[] } {
+  const nodes = [...diagram.nodes];
+  const links = [...diagram.links];
+  const entityByName = new Map(
+    nodes.filter((n) => n.type === 'entity').map((n) => [n.name.trim(), n]),
+  );
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const attrsByParent = new Map<string, Set<string>>();
+  const pkByParent = new Set<string>();
+
+  for (const node of nodes) {
+    if (node.type !== 'attribute' || !node.parent) continue;
+    const keys = attrsByParent.get(node.parent) ?? new Set<string>();
+    keys.add(attributeNameKey(node.name));
+    attrsByParent.set(node.parent, keys);
+    if (node.isPrimaryKey) pkByParent.add(node.parent);
+  }
+
+  const warnings: string[] = [];
+  let added = 0;
+  let serial = 0;
+
+  const nextAttributeId = (entityId: string): string => {
+    let id = `${entityId}#ai-${serial++}`;
+    while (nodeIds.has(id)) id = `${entityId}#ai-${serial++}`;
+    nodeIds.add(id);
+    return id;
+  };
+
+  for (const patch of patches) {
+    const entityName = (patch.entity ?? '').trim();
+    const entity = entityByName.get(entityName);
+    if (!entity) {
+      warnings.push(`属性补全引用了不存在的实体「${entityName || '?'}」，已忽略`);
+      continue;
+    }
+
+    const existing = attrsByParent.get(entity.id) ?? new Set<string>();
+    attrsByParent.set(entity.id, existing);
+    let hasPrimaryKey = pkByParent.has(entity.id);
+
+    for (const attr of patch.attributes ?? []) {
+      const name = (attr.name ?? '').trim();
+      if (!name) continue;
+      const key = attributeNameKey(name);
+      if (existing.has(key)) {
+        warnings.push(`实体「${entity.name}」已存在属性「${name}」，已跳过`);
+        continue;
+      }
+      existing.add(key);
+
+      const isPrimaryKey = Boolean(attr.primaryKey) && !hasPrimaryKey;
+      if (isPrimaryKey) {
+        hasPrimaryKey = true;
+        pkByParent.add(entity.id);
+      }
+
+      const attrId = nextAttributeId(entity.id);
+      nodes.push({
+        id: attrId,
+        name,
+        type: 'attribute',
+        parent: entity.id,
+        isPrimaryKey,
+      });
+      links.push({ source: entity.id, target: attrId, type: 'attribute' });
+      added += 1;
+    }
+  }
+
+  return { diagram: added > 0 ? { nodes, links } : diagram, added, warnings };
 }

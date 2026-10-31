@@ -7,7 +7,9 @@
  *     共享邻居的实体保持角度间隔；
  *  4. 交换实体位置以减少联系之间的交叉；
  *  5. 关联表（多对多）会变成带属性的菱形，属性环绕菱形排布；
- *  6. 最后做一轮全局松弛，把属性 / 菱形推到不重叠的位置，再按连通分量打包。
+ *  6. 属性采用 huahub 恢复属性时的紧凑排布：每个属性在自己的角度槽内
+ *     由内向外扫描半径，避让已有节点与连线；槽内放不下时继续向外扩一圈，
+ *     而不是把整圈半径撑大。这样十几个、二十几个属性都会贴着矩形分层聚集。
  *
  * 所有坐标就地写入 RenderNode.x / y。
  */
@@ -19,6 +21,13 @@ const ATTR_GAP = 6;
 const ATTR_ARC = 0.45;
 const MIN_AXIS = 120;
 
+/** 属性紧凑排布参数（对应 huahub Xo 的 Je / B / 候选步数） */
+const ATTR_SEARCH_RADIUS = 220;
+const ATTR_ANGLE_PENALTY = 75;
+const ATTR_LOCAL_STEPS = 5;
+const ATTR_GLOBAL_STEPS = 12;
+const ATTR_RADIUS_STEP = 3;
+
 interface Point {
   x: number;
   y: number;
@@ -27,19 +36,8 @@ interface Point {
 interface HubStats {
   attrs: RenderNode[];
   dirIds: string[];
-  /** 属性环基准半径 */
-  arcRadius: number;
-  /** 实体/联系自身边界到属性环的最小半径 */
-  baseRadius: number;
-  /** 碰撞半径（含最大属性） */
+  /** 属性簇的估算半径 */
   ringRadius: number;
-  maxAttrRadius: number;
-  halfW: number;
-  halfH: number;
-  maxAttrHalfW: number;
-  maxAttrHalfH: number;
-  totalArc: number;
-  dirMargin: number;
 }
 
 interface Hub {
@@ -57,8 +55,6 @@ interface AxisRel {
   /** 菱形属性环的基准半径 */
   arcRadius: number;
   ringRadius: number;
-  maxAttrRadius: number;
-  dirMargin: number;
 }
 
 const TWO_PI = Math.PI * 2;
@@ -165,9 +161,7 @@ export function layoutSmart(nodes: RenderNode[], edges: RenderEdge[]): void {
         bId: ends[1],
         attrs,
         arcRadius: stat.arcRadius,
-        ringRadius: stat.orbit + stat.maxAttrRadius,
-        maxAttrRadius: stat.maxAttrRadius,
-        dirMargin: stat.dirMargin,
+        ringRadius: stat.ringRadius,
       });
     } else if (ends.length >= 1) {
       hubRels.push(rel);
@@ -183,8 +177,6 @@ export function layoutSmart(nodes: RenderNode[], edges: RenderEdge[]): void {
       attrs: [],
       arcRadius: 0,
       ringRadius: 0,
-      maxAttrRadius: 0,
-      dirMargin: 0,
     });
   }
 
@@ -257,11 +249,13 @@ export function layoutSmart(nodes: RenderNode[], edges: RenderEdge[]): void {
     if (!a || !b) return MIN_AXIS;
     const pa = positions.get(a.id)!;
     const pb = positions.get(b.id)!;
-    const { ux, uy, dist } = unit(pa, pb);
-    const clearA = rectDist(a.node.w, a.node.h, ux, uy) + (a.stats.maxAttrRadius || 0) + GAP;
-    const clearB = rectDist(b.node.w, b.node.h, -ux, -uy) + (b.stats.maxAttrRadius || 0) + GAP;
+    const { ux, uy } = unit(pa, pb);
+    // 实体只按自身尺寸留出轴距；属性最后统一避让，允许相邻簇互相嵌合
+    const clearA = rectDist(a.node.w, a.node.h, ux, uy) + GAP;
+    const clearB = rectDist(b.node.w, b.node.h, -ux, -uy) + GAP;
     const relRadius = axis.node ? Math.max(axis.node.w, axis.node.h) / 2 : 0;
-    return Math.max(MIN_AXIS, clearA + clearB + relRadius * 2, axis.ringRadius * 2 + GAP);
+    const relAttrClear = axis.attrs.length > 0 ? axis.ringRadius * 2 + GAP : 0;
+    return Math.max(MIN_AXIS, clearA + clearB + relRadius * 2, relAttrClear);
   };
 
   // 物理迭代：拉开/压紧联系轴线、排斥无关实体、保证共享邻居的夹角
@@ -278,10 +272,10 @@ export function layoutSmart(nodes: RenderNode[], edges: RenderEdge[]): void {
         const { ux, uy, dist } = unit(a, b);
         let shift: number | null = null;
         if (dist < required - 1) shift = required - dist;
-        else if (dist > required * 1.5 + 1) shift = required * 1.5 - dist;
+        else if (dist > required * 1.05 + 1) shift = required * 1.05 - dist;
         if (shift === null) continue;
 
-        const k = dist < required - 1 ? 0.2 : 0.05;
+        const k = dist < required - 1 ? 0.2 : 0.08;
         a.x -= ux * shift * k * 0.5;
         a.y -= uy * shift * k * 0.5;
         b.x += ux * shift * k * 0.5;
@@ -424,8 +418,6 @@ export function layoutSmart(nodes: RenderNode[], edges: RenderEdge[]): void {
   }
 
   // 联系菱形放在两实体之间的轴线上
-  const relAttractors = new Map<string, Point>();
-
   for (const axis of axisRels) {
     if (!axis.node) continue;
     const a = hubById.get(axis.aId);
@@ -450,10 +442,8 @@ export function layoutSmart(nodes: RenderNode[], edges: RenderEdge[]): void {
 
     const center = start + Math.max(GAP, (end - start) / 2);
     const t = Math.min(Math.max(center, start), Math.max(start, end));
-    const point = { x: pa.x + ux * t, y: pa.y + uy * t };
-    rel.x = point.x;
-    rel.y = point.y;
-    relAttractors.set(axis.relId, point);
+    rel.x = pa.x + ux * t;
+    rel.y = pa.y + uy * t;
   }
 
   // 同一对实体的多条联系，沿垂直方向错开
@@ -483,29 +473,11 @@ export function layoutSmart(nodes: RenderNode[], edges: RenderEdge[]): void {
         const offset = (index - middle) * spacing;
         item.node!.x = base.x + normal.x * offset;
         item.node!.y = base.y + normal.y * offset;
-        // 多联系错开后，松弛时的回拉目标也要跟着更新
-        relAttractors.set(item.relId, { x: item.node!.x, y: item.node!.y });
       });
   }
 
-  // 属性环绕：联系方向占位，属性填到扇形空隙
-  for (const hub of hubs) {
-    placeSatellites(hub, positions.get(hub.id)!, positions, hubById);
-  }
-
-  // 轴线上带属性的联系（多对多关联表）也要把属性铺开
-  for (const axis of axisRels) {
-    if (!axis.node || axis.attrs.length === 0) continue;
-    const relHub: Hub = {
-      id: axis.relId,
-      node: axis.node,
-      stats: { ...makeOrbitStats(axis.node, axis.attrs, 2), attrs: axis.attrs, dirIds: [axis.aId, axis.bId] },
-    };
-    placeSatellites(relHub, { x: axis.node.x, y: axis.node.y }, positions, hubById);
-  }
-
-  // 全局松弛：属性 / 菱形互不重叠，菱形被拉回轴线
-  relaxAll(nodes, edges, relAttractors);
+  // 属性紧凑环绕：按联系方向分槽，由内向外扫描半径并避让节点 / 连线
+  placeAttributesCompact(nodes, edges);
 
   packComponents(nodes, edges);
 }
@@ -568,97 +540,638 @@ function initHubPositions(hubs: Hub[]): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* 属性排布                                                              */
+/* 属性排布：紧凑分槽 + 半径扫描                                          */
 /* ------------------------------------------------------------------ */
 
-function placeSatellites(
-  hub: Hub,
-  center: Point,
-  positions: Map<string, Point>,
-  hubById: Map<string, Hub>,
+interface CollisionBox {
+  id: string;
+  x: number;
+  y: number;
+  halfW: number;
+  halfH: number;
+  nodeType: RenderNode['type'];
+}
+
+interface CollisionSegment {
+  source: string;
+  target: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+interface CheckFlags {
+  rectNode: boolean;
+  edgeNode: boolean;
+  edgeCross: boolean;
+  rectPierce: boolean;
+}
+
+interface AttrCandidate {
+  angle: number;
+  radius: number;
+  dx: number;
+  dy: number;
+}
+
+interface ProjectedBox {
+  box: CollisionBox;
+  along: number;
+  perp: number;
+  projX: number;
+  projY: number;
+}
+
+interface ProjectedSegment {
+  segment: CollisionSegment;
+  minAlong: number;
+  maxAlong: number;
+  minPerp: number;
+  maxPerp: number;
+}
+
+interface SpatialGrid<T> {
+  cellSize: number;
+  cells: Map<string, T[]>;
+}
+
+const STRICT_CHECKS: CheckFlags = {
+  rectNode: true,
+  edgeNode: true,
+  edgeCross: true,
+  rectPierce: true,
+};
+
+const GRID_CELL = 160;
+
+function createGrid<T>(cellSize: number): SpatialGrid<T> {
+  return { cellSize, cells: new Map() };
+}
+
+function insertGridItem<T>(
+  grid: SpatialGrid<T>,
+  item: T,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
 ): void {
-  const attrs = hub.stats.attrs;
-  if (attrs.length === 0) return;
-
-  const dirAngles: number[] = [];
-  for (const dirId of hub.stats.dirIds) {
-    const target = positions.get(dirId) ?? hubById.get(dirId)?.node;
-    if (!target) continue;
-    const ux = target.x - center.x;
-    const uy = target.y - center.y;
-    if (Math.hypot(ux, uy) < 1e-6) continue;
-    dirAngles.push(normAngle(Math.atan2(uy, ux)));
-  }
-  dirAngles.sort((a, b) => a - b);
-
-  const margin = hub.stats.dirMargin;
-  let gaps: Array<{ start: number; length: number }> = [];
-
-  if (dirAngles.length === 0) {
-    gaps = [{ start: 0, length: TWO_PI }];
-  } else {
-    for (let i = 0; i < dirAngles.length; i += 1) {
-      const current = dirAngles[i];
-      const next = dirAngles[(i + 1) % dirAngles.length] + (i === dirAngles.length - 1 ? TWO_PI : 0);
-      const start = current + margin;
-      const length = next - margin - start;
-      if (length > 0.05) gaps.push({ start, length });
+  const ix0 = Math.floor(minX / grid.cellSize);
+  const ix1 = Math.floor(maxX / grid.cellSize);
+  const iy0 = Math.floor(minY / grid.cellSize);
+  const iy1 = Math.floor(maxY / grid.cellSize);
+  for (let ix = ix0; ix <= ix1; ix += 1) {
+    for (let iy = iy0; iy <= iy1; iy += 1) {
+      const key = `${ix},${iy}`;
+      const bucket = grid.cells.get(key) ?? [];
+      bucket.push(item);
+      grid.cells.set(key, bucket);
     }
-    if (gaps.length === 0) gaps = [{ start: 0, length: TWO_PI }];
   }
+}
 
-  // 每个空隙分到的属性数量 ∝ 空隙角度
-  const totalGap = gaps.reduce((sum, gap) => sum + gap.length, 0);
-  const sorted = attrs.slice().sort((a, b) => a.id.localeCompare(b.id));
-  const counts = gaps.map((gap) => Math.max(0, Math.round((sorted.length * gap.length) / totalGap)));
-  let assigned = counts.reduce((sum, c) => sum + c, 0);
-  while (assigned < sorted.length) {
-    let widest = 0;
-    gaps.forEach((gap, i) => {
-      if (gap.length > gaps[widest].length) widest = i;
-    });
-    counts[widest] += 1;
-    assigned += 1;
-  }
-  while (assigned > sorted.length) {
-    for (let i = counts.length - 1; i >= 0; i -= 1) {
-      if (counts[i] > 0) {
-        counts[i] -= 1;
-        assigned -= 1;
-        break;
+function queryGridItems<T>(
+  grid: SpatialGrid<T>,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): T[] {
+  const ix0 = Math.floor(minX / grid.cellSize);
+  const ix1 = Math.floor(maxX / grid.cellSize);
+  const iy0 = Math.floor(minY / grid.cellSize);
+  const iy1 = Math.floor(maxY / grid.cellSize);
+  const seen = new Set<T>();
+  const out: T[] = [];
+  for (let ix = ix0; ix <= ix1; ix += 1) {
+    for (let iy = iy0; iy <= iy1; iy += 1) {
+      const bucket = grid.cells.get(`${ix},${iy}`);
+      if (!bucket) continue;
+      for (const item of bucket) {
+        if (seen.has(item)) continue;
+        seen.add(item);
+        out.push(item);
       }
     }
   }
+  return out;
+}
 
-  let index = 0;
-  gaps.forEach((gap, gapIndex) => {
-    const count = counts[gapIndex];
-    if (count === 0) return;
-    const items = sorted.slice(index, index + count);
-    index += count;
+/**
+ * 属性紧凑排布（对应 huahub 显示/恢复属性时的 Xo）：
+ *  - 先按联系方向给属性分角度槽；
+ *  - 每个属性在槽内由内向外扫描半径，避让已有节点、连线；
+ *  - 槽内被占满时继续向外扩一圈，而不是把整圈半径撑大；
+ *  - 逐级放宽碰撞约束，保证极端情况下也能落位。
+ */
+function placeAttributesCompact(nodes: RenderNode[], edges: RenderEdge[]): void {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const attrsByParent = new Map<string, RenderNode[]>();
 
-    const arcNeeded = gap.length > 1e-6 ? items.reduce((sum, item) => sum + attrArc(item), 0) / gap.length : 0;
-    items.forEach((item, k) => {
-      const angle = gap.start + (gap.length * (k + 0.5)) / count;
-      const ux = Math.cos(angle);
-      const uy = Math.sin(angle);
-      const boundary = boundaryDist(hub.node, ux, uy) + boundaryDist(item, ux, uy) + ATTR_GAP;
-      const radius = Math.max(boundary, arcNeeded);
-      item.x = center.x + ux * radius;
-      item.y = center.y + uy * radius;
-    });
-  });
+  for (const node of nodes) {
+    if (node.type !== 'attribute' || !node.parent) continue;
+    const list = attrsByParent.get(node.parent) ?? [];
+    list.push(node);
+    attrsByParent.set(node.parent, list);
+  }
 
-  // 兜底：空隙计算异常时按整圈均匀铺开
-  if (index < sorted.length) {
-    const rest = sorted.slice(index);
-    const radius = Math.max(...rest.map((item) => Math.max(item.w, item.h) / 2 + hub.stats.baseRadius + ATTR_GAP));
-    rest.forEach((item, k) => {
-      const angle = (TWO_PI * k) / rest.length - Math.PI / 2;
-      item.x = center.x + Math.cos(angle) * radius;
-      item.y = center.y + Math.sin(angle) * radius;
+  const hubs = nodes.filter(
+    (n) => n.type !== 'attribute' && (attrsByParent.get(n.id)?.length ?? 0) > 0,
+  );
+  if (hubs.length === 0) return;
+
+  const boxGrid = createGrid<CollisionBox>(GRID_CELL);
+  const segmentGrid = createGrid<CollisionSegment>(GRID_CELL);
+
+  for (const node of nodes) {
+    if (node.type === 'attribute') continue;
+    const box: CollisionBox = {
+      id: node.id,
+      x: node.x,
+      y: node.y,
+      halfW: node.w / 2,
+      halfH: node.h / 2,
+      nodeType: node.type,
+    };
+    insertGridItem(
+      boxGrid,
+      box,
+      box.x - box.halfW - 8,
+      box.y - box.halfH - 8,
+      box.x + box.halfW + 8,
+      box.y + box.halfH + 8,
+    );
+  }
+
+  for (const edge of edges) {
+    if (edge.type !== 'relationship') continue;
+    const from = byId.get(edge.source);
+    const to = byId.get(edge.target);
+    if (!from || !to) continue;
+    const { ux, uy } = unit(from, to);
+    const startGap = boundaryDist(from, ux, uy) + 3;
+    const endGap = boundaryDist(to, -ux, -uy) + 3;
+    const segment: CollisionSegment = {
+      source: edge.source,
+      target: edge.target,
+      x1: from.x + ux * startGap,
+      y1: from.y + uy * startGap,
+      x2: to.x - ux * endGap,
+      y2: to.y - uy * endGap,
+    };
+    insertGridItem(
+      segmentGrid,
+      segment,
+      Math.min(segment.x1, segment.x2) - 4,
+      Math.min(segment.y1, segment.y2) - 4,
+      Math.max(segment.x1, segment.x2) + 4,
+      Math.max(segment.y1, segment.y2) + 4,
+    );
+  }
+
+  // 属性最多的 hub 先排，保证大簇优先占据靠近矩形的内圈
+  const ordered = hubs
+    .slice()
+    .sort(
+      (a, b) =>
+        (attrsByParent.get(b.id)?.length ?? 0) - (attrsByParent.get(a.id)?.length ?? 0) ||
+        a.id.localeCompare(b.id),
+    );
+
+  for (const hub of ordered) {
+    const attrs = (attrsByParent.get(hub.id) ?? [])
+      .slice()
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (attrs.length === 0) continue;
+
+    const dirAngles: number[] = [];
+    for (const edge of edges) {
+      if (edge.type !== 'relationship') continue;
+      const otherId =
+        edge.source === hub.id ? edge.target : edge.target === hub.id ? edge.source : null;
+      if (!otherId) continue;
+      const other = byId.get(otherId);
+      if (!other) continue;
+      const dx = other.x - hub.x;
+      const dy = other.y - hub.y;
+      if (Math.hypot(dx, dy) < 1e-6) continue;
+      dirAngles.push(normAngle(Math.atan2(dy, dx)));
+    }
+    dirAngles.sort((a, b) => a - b);
+
+    const slots = computeAttrSlots(attrs.length, dirAngles);
+    attrs.forEach((attr, index) => {
+      placeOneAttribute(
+        hub,
+        attr,
+        slots.angles[index] ?? 0,
+        slots.halfWindows[index] ?? 0,
+        boxGrid,
+        segmentGrid,
+      );
     });
   }
+}
+
+/**
+ * 角度分槽（对应 huahub Yo）：
+ *  - 无联系方向时整圈均分；
+ *  - 有联系方向时，槽宽 = 2π / (属性数 + 联系方向数)，
+ *    每个联系之间的空隙按能容纳的槽数分配属性。
+ */
+function computeAttrSlots(
+  count: number,
+  dirAngles: number[],
+): { angles: number[]; halfWindows: number[] } {
+  if (count <= 0) return { angles: [], halfWindows: [] };
+
+  const total = dirAngles.length;
+  if (total === 0) {
+    const step = TWO_PI / count;
+    return {
+      angles: Array.from({ length: count }, (_, i) => i * step),
+      halfWindows: Array.from({ length: count }, () => step * 0.48),
+    };
+  }
+
+  const sorted = dirAngles.map(normAngle).sort((a, b) => a - b);
+  const slotWidth = TWO_PI / (count + total);
+
+  const gaps = sorted.map((start, i) => {
+    const next = sorted[(i + 1) % total] + (i === total - 1 ? TWO_PI : 0);
+    let width = next - start;
+    if (width <= 1e-9) width += TWO_PI;
+    const raw = Math.max(0, width / slotWidth - 1);
+    return { start, width, raw, count: Math.max(0, Math.round(raw)) };
+  });
+
+  let allocated = gaps.reduce((sum, gap) => sum + gap.count, 0);
+  while (allocated < count) {
+    let best = 0;
+    for (let i = 1; i < gaps.length; i += 1) {
+      if (gaps[i].raw - gaps[i].count > gaps[best].raw - gaps[best].count) best = i;
+    }
+    gaps[best].count += 1;
+    allocated += 1;
+  }
+  while (allocated > count) {
+    let best = -1;
+    for (let i = 0; i < gaps.length; i += 1) {
+      if (gaps[i].count <= 0) continue;
+      if (
+        best < 0 ||
+        gaps[i].raw - gaps[i].count < gaps[best].raw - gaps[best].count
+      ) {
+        best = i;
+      }
+    }
+    if (best < 0) break;
+    gaps[best].count -= 1;
+    allocated -= 1;
+  }
+
+  const angles: number[] = [];
+  const halfWindows: number[] = [];
+  for (const gap of gaps) {
+    if (gap.count <= 0) continue;
+    const step = gap.width / (gap.count + 1);
+    for (let k = 0; k < gap.count; k += 1) {
+      angles.push((gap.start + step * (k + 1)) % TWO_PI);
+      halfWindows.push(step * 0.48);
+    }
+  }
+
+  while (angles.length < count) {
+    angles.push((angles.length / count) * TWO_PI);
+    halfWindows.push((TWO_PI / count) * 0.48);
+  }
+
+  return { angles: angles.slice(0, count), halfWindows: halfWindows.slice(0, count) };
+}
+
+function placeOneAttribute(
+  hub: RenderNode,
+  attr: RenderNode,
+  preferredAngle: number,
+  halfWindow: number,
+  boxGrid: SpatialGrid<CollisionBox>,
+  segmentGrid: SpatialGrid<CollisionSegment>,
+): void {
+  const localOffsets = [0];
+  for (let i = 1; i <= ATTR_LOCAL_STEPS; i += 1) {
+    const delta = (i / ATTR_LOCAL_STEPS) * halfWindow;
+    localOffsets.push(delta, -delta);
+  }
+
+  const globalOffsets: number[] = [];
+  for (let i = 1; i < ATTR_GLOBAL_STEPS; i += 1) {
+    globalOffsets.push((i / ATTR_GLOBAL_STEPS) * TWO_PI);
+  }
+
+  const pickBest = (offsets: number[], flags: CheckFlags): AttrCandidate | null => {
+    let best: AttrCandidate | null = null;
+    let bestScore = Infinity;
+    for (const offset of offsets) {
+      const angle = normAngle(preferredAngle + offset);
+      const candidate = scanAttributeRadius(hub, attr, angle, flags, boxGrid, segmentGrid);
+      if (!candidate) continue;
+      const deviation = Math.min(Math.abs(offset), TWO_PI - Math.abs(offset));
+      const score = candidate.radius + deviation * ATTR_ANGLE_PENALTY;
+      if (score < bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    return best;
+  };
+
+  const relaxEdgeCross: CheckFlags = { ...STRICT_CHECKS, edgeCross: false };
+  const relaxPierce: CheckFlags = { ...relaxEdgeCross, rectPierce: false };
+  const onlyNode: CheckFlags = {
+    rectNode: true,
+    edgeNode: false,
+    edgeCross: false,
+    rectPierce: false,
+  };
+
+  let best =
+    pickBest(localOffsets, STRICT_CHECKS) ??
+    pickBest(localOffsets, relaxEdgeCross) ??
+    pickBest(localOffsets, relaxPierce) ??
+    pickBest(localOffsets, onlyNode) ??
+    pickBest(globalOffsets, STRICT_CHECKS) ??
+    pickBest(globalOffsets, relaxEdgeCross) ??
+    pickBest(globalOffsets, relaxPierce) ??
+    pickBest(globalOffsets, onlyNode);
+
+  if (!best) {
+    // 极端拥挤时放宽到 hub 尺寸 + 380 的范围，只保留节点避让
+    const maxRadius = Math.max(hub.w, hub.h) / 2 + ATTR_SEARCH_RADIUS + 160;
+    best = scanAttributeRadius(
+      hub,
+      attr,
+      normAngle(preferredAngle),
+      onlyNode,
+      boxGrid,
+      segmentGrid,
+      maxRadius,
+    );
+  }
+
+  if (!best) {
+    best = fallbackCandidate(hub, attr, preferredAngle);
+  }
+
+  const x = hub.x + best.dx * best.radius;
+  const y = hub.y + best.dy * best.radius;
+  attr.x = x;
+  attr.y = y;
+
+  const hubBoundary = boundaryDist(hub, best.dx, best.dy);
+  const attrBoundary = boundaryDist(attr, best.dx, best.dy);
+  const box: CollisionBox = {
+    id: attr.id,
+    x,
+    y,
+    halfW: attr.w / 2,
+    halfH: attr.h / 2,
+    nodeType: 'attribute',
+  };
+  insertGridItem(
+    boxGrid,
+    box,
+    box.x - box.halfW - 8,
+    box.y - box.halfH - 8,
+    box.x + box.halfW + 8,
+    box.y + box.halfH + 8,
+  );
+
+  const segment: CollisionSegment = {
+    source: hub.id,
+    target: attr.id,
+    x1: hub.x + best.dx * hubBoundary,
+    y1: hub.y + best.dy * hubBoundary,
+    x2: x - best.dx * attrBoundary,
+    y2: y - best.dy * attrBoundary,
+  };
+  insertGridItem(
+    segmentGrid,
+    segment,
+    Math.min(segment.x1, segment.x2) - 4,
+    Math.min(segment.y1, segment.y2) - 4,
+    Math.max(segment.x1, segment.x2) + 4,
+    Math.max(segment.y1, segment.y2) + 4,
+  );
+}
+
+function fallbackCandidate(hub: RenderNode, attr: RenderNode, angle: number): AttrCandidate {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const radius = boundaryDist(hub, dx, dy) + boundaryDist(attr, dx, dy) + ATTR_GAP;
+  return { angle, radius, dx, dy };
+}
+
+function scanAttributeRadius(
+  hub: RenderNode,
+  attr: RenderNode,
+  angle: number,
+  flags: CheckFlags,
+  boxGrid: SpatialGrid<CollisionBox>,
+  segmentGrid: SpatialGrid<CollisionSegment>,
+  maxRadius?: number,
+): AttrCandidate | null {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const hubBoundary = boundaryDist(hub, dx, dy);
+  const attrBoundary = boundaryDist(attr, dx, dy);
+  const minRadius = hubBoundary + attrBoundary + ATTR_GAP;
+  const limit = maxRadius ?? hubBoundary + ATTR_SEARCH_RADIUS;
+  if (limit < minRadius) return null;
+
+  const halfW = attr.w / 2;
+  const halfH = attr.h / 2;
+  const startX = hub.x + dx * hubBoundary;
+  const startY = hub.y + dy * hubBoundary;
+
+  // 整条射线的包围盒只查一次空间索引，避免每个半径步都分配查询结果
+  const rayMinX = Math.min(hub.x, hub.x + dx * limit) - halfW - 8;
+  const rayMaxX = Math.max(hub.x, hub.x + dx * limit) + halfW + 8;
+  const rayMinY = Math.min(hub.y, hub.y + dy * limit) - halfH - 8;
+  const rayMaxY = Math.max(hub.y, hub.y + dy * limit) + halfH + 8;
+
+  const nearbyBoxes =
+    flags.rectNode || flags.edgeNode
+      ? queryGridItems(boxGrid, rayMinX, rayMinY, rayMaxX, rayMaxY)
+      : [];
+  const nearbySegments =
+    flags.edgeCross || flags.rectPierce
+      ? queryGridItems(segmentGrid, rayMinX, rayMinY, rayMaxX, rayMaxY)
+      : [];
+
+  // 把候选节点 / 线段投影到射线坐标系，用 along / perp 先做廉价剪枝
+  const project = (px: number, py: number) => {
+    const rx = px - hub.x;
+    const ry = py - hub.y;
+    return { along: rx * dx + ry * dy, perp: -rx * dy + ry * dx };
+  };
+
+  const projectedBoxes = nearbyBoxes.map((box) => {
+    const { along, perp } = project(box.x, box.y);
+    return {
+      box,
+      along,
+      perp,
+      projX: Math.abs(dx) * box.halfW + Math.abs(dy) * box.halfH,
+      projY: Math.abs(dy) * box.halfW + Math.abs(dx) * box.halfH,
+    };
+  });
+
+  const projectedSegments = nearbySegments.map((segment) => {
+    const a = project(segment.x1, segment.y1);
+    const b = project(segment.x2, segment.y2);
+    return {
+      segment,
+      minAlong: Math.min(a.along, b.along),
+      maxAlong: Math.max(a.along, b.along),
+      minPerp: Math.min(a.perp, b.perp),
+      maxPerp: Math.max(a.perp, b.perp),
+    };
+  });
+
+  const attrProjX = Math.abs(dx) * halfW + Math.abs(dy) * halfH;
+  const attrProjY = Math.abs(dy) * halfW + Math.abs(dx) * halfH;
+
+  for (let radius = minRadius; radius <= limit; radius += ATTR_RADIUS_STEP) {
+    const x = hub.x + dx * radius;
+    const y = hub.y + dy * radius;
+    let blocked = false;
+
+    if (flags.rectNode) {
+      for (const projected of projectedBoxes) {
+        if (projected.box.id === hub.id) continue;
+        const bias = projected.box.nodeType === 'attribute' ? -4 : 2;
+        if (Math.abs(projected.along - radius) >= attrProjX + projected.projX + bias) continue;
+        if (Math.abs(projected.perp) >= attrProjY + projected.projY + bias) continue;
+        if (
+          Math.abs(x - projected.box.x) < halfW + projected.box.halfW + bias &&
+          Math.abs(y - projected.box.y) < halfH + projected.box.halfH + bias
+        ) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+
+    if (!blocked && flags.edgeNode) {
+      const endX = x - dx * attrBoundary;
+      const endY = y - dy * attrBoundary;
+      for (const projected of projectedBoxes) {
+        if (projected.box.id === hub.id) continue;
+        if (
+          projected.along < hubBoundary - projected.projX - 3 ||
+          projected.along > radius + projected.projX + 3
+        ) {
+          continue;
+        }
+        if (Math.abs(projected.perp) > projected.projY + 3) continue;
+        if (
+          segmentIntersectsBox(
+            startX,
+            startY,
+            endX,
+            endY,
+            projected.box.x,
+            projected.box.y,
+            projected.box.halfW + 3,
+            projected.box.halfH + 3,
+          )
+        ) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+
+    if (!blocked && flags.edgeCross) {
+      const endX = x - dx * attrBoundary;
+      const endY = y - dy * attrBoundary;
+      for (const projected of projectedSegments) {
+        const segment = projected.segment;
+        if (segment.source === hub.id || segment.target === hub.id) continue;
+        if (projected.maxAlong < hubBoundary - 3 || projected.minAlong > radius + 3) continue;
+        if (projected.minPerp > 3 || projected.maxPerp < -3) continue;
+        if (
+          segmentsIntersect(
+            { x: startX, y: startY },
+            { x: endX, y: endY },
+            { x: segment.x1, y: segment.y1 },
+            { x: segment.x2, y: segment.y2 },
+          )
+        ) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+
+    if (!blocked && flags.rectPierce) {
+      for (const projected of projectedSegments) {
+        const segment = projected.segment;
+        if (
+          projected.maxAlong < radius - attrProjX - 1 ||
+          projected.minAlong > radius + attrProjX + 1
+        ) {
+          continue;
+        }
+        if (projected.maxPerp < -attrProjY - 1 || projected.minPerp > attrProjY + 1) continue;
+        if (
+          segmentIntersectsBox(
+            segment.x1,
+            segment.y1,
+            segment.x2,
+            segment.y2,
+            x,
+            y,
+            halfW,
+            halfH,
+          )
+        ) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+
+    if (!blocked) return { angle, radius, dx, dy };
+  }
+
+  return null;
+}
+
+function segmentIntersectsBox(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  cx: number,
+  cy: number,
+  halfW: number,
+  halfH: number,
+): boolean {
+  const minX = cx - halfW;
+  const maxX = cx + halfW;
+  const minY = cy - halfH;
+  const maxY = cy + halfH;
+  const inside = (x: number, y: number) => x >= minX && x <= maxX && y >= minY && y <= maxY;
+  if (inside(x1, y1) || inside(x2, y2)) return true;
+
+  return (
+    segmentsIntersect({ x: x1, y: y1 }, { x: x2, y: y2 }, { x: minX, y: minY }, { x: maxX, y: minY }) ||
+    segmentsIntersect({ x: x1, y: y1 }, { x: x2, y: y2 }, { x: maxX, y: minY }, { x: maxX, y: maxY }) ||
+    segmentsIntersect({ x: x1, y: y1 }, { x: x2, y: y2 }, { x: maxX, y: maxY }, { x: minX, y: maxY }) ||
+    segmentsIntersect({ x: x1, y: y1 }, { x: x2, y: y2 }, { x: minX, y: maxY }, { x: minX, y: minY })
+  );
 }
 
 function attrArc(item: RenderNode): number {
@@ -690,132 +1203,33 @@ function makeOrbitStats(node: RenderNode, attrs: RenderNode[], dirCount: number)
   const freeAngle =
     dirCount > 0 ? Math.max(TWO_PI - dirCount * dirMargin * 2, Math.PI / 2) : TWO_PI;
 
-  const arcRadius = attrs.length > 0 ? totalArc / freeAngle : 0;
   const baseRadius =
     attrs.length > 0
       ? Math.min(halfW + maxAttrHalfW, halfH + maxAttrHalfH) + ATTR_GAP
       : Math.hypot(node.w, node.h) / 2;
 
-  const orbit = Math.max(baseRadius, arcRadius);
+  let orbit = baseRadius;
+  if (attrs.length > 0) {
+    // 按「内圈放满再向外扩一圈」估算簇半径，而不是把全部属性摊在同一大圆上
+    const avgArc = totalArc / attrs.length;
+    const ringStep = Math.max(maxAttrHalfH * 2 + ATTR_GAP, 18);
+    let remaining = attrs.length;
+    for (let ring = 0; ring < 16 && remaining > 0; ring += 1) {
+      const capacity = Math.max(1, Math.floor((freeAngle * orbit) / Math.max(avgArc, 1)));
+      remaining -= capacity;
+      if (remaining > 0) orbit += ringStep;
+    }
+  }
 
   return {
-    arcRadius,
-    baseRadius,
-    orbit,
+    arcRadius: orbit,
     ringRadius: orbit + maxAttrRadius,
-    maxAttrRadius,
-    halfW,
-    halfH,
-    maxAttrHalfW,
-    maxAttrHalfH,
-    totalArc,
-    dirMargin,
   };
 }
 
 /* ------------------------------------------------------------------ */
-/* 全局松弛与打包                                                        */
+/* 连通分量打包                                                          */
 /* ------------------------------------------------------------------ */
-
-function relaxAll(
-  nodes: RenderNode[],
-  edges: RenderEdge[],
-  relAttractors: Map<string, Point>,
-): void {
-  const radiusOf = (node: RenderNode) => Math.hypot(node.w, node.h) / 2;
-
-  /** 把属性推到父图形的边界之外，返回移动距离 */
-  const clampOutside = (attr: RenderNode, parent: RenderNode): number => {
-    const dx = attr.x - parent.x;
-    const dy = attr.y - parent.y;
-    const dist = Math.hypot(dx, dy) || 0.01;
-    const ux = dx / dist;
-    const uy = dy / dist;
-    const required = boundaryDist(parent, ux, uy) + boundaryDist(attr, ux, uy) + ATTR_GAP;
-    if (dist >= required) return 0;
-    attr.x = parent.x + ux * required;
-    attr.y = parent.y + uy * required;
-    return required - dist;
-  };
-  const hubIds = new Set(
-    nodes.filter((n) => n.type !== 'attribute').map((n) => n.id),
-  );
-
-  // 轴线两端跳过（已由物理迭代约束）
-  const axisPairs = new Set<string>();
-  for (const edge of edges) {
-    if (edge.type !== 'relationship') continue;
-    const source = nodes.find((n) => n.id === edge.source);
-    const target = nodes.find((n) => n.id === edge.target);
-    if (!source || !target) continue;
-    if (source.type === 'relationship' && target.type === 'entity') axisPairs.add(pairKey(source.id, target.id));
-    if (source.type === 'entity' && target.type === 'relationship') axisPairs.add(pairKey(source.id, target.id));
-  }
-
-  for (let iter = 0; iter < 300; iter += 1) {
-    let moved = 0;
-
-    for (let i = 0; i < nodes.length; i += 1) {
-      for (let j = i + 1; j < nodes.length; j += 1) {
-        const a = nodes[i];
-        const b = nodes[j];
-
-        // 属性与父节点不做互斥推开，但必须保证属性在父图形之外
-        if (a.type === 'attribute' && a.parent === b.id) {
-          moved = Math.max(moved, clampOutside(a, b));
-          continue;
-        }
-        if (b.type === 'attribute' && b.parent === a.id) {
-          moved = Math.max(moved, clampOutside(b, a));
-          continue;
-        }
-
-        const bothHubs = hubIds.has(a.id) && hubIds.has(b.id);
-        if (bothHubs) continue;
-
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        let dist = Math.hypot(dx, dy);
-        if (dist === 0) dist = 0.01;
-        const ux = dx / dist;
-        const uy = dy / dist;
-
-        const margin = a.type === 'attribute' && b.type === 'attribute' ? 0 : 8;
-        const required = radiusOf(a) + radiusOf(b) + margin;
-        if (dist >= required) continue;
-
-        const overlap = required - dist;
-        let moveA: number;
-        let moveB: number;
-        if (hubIds.has(a.id)) {
-          moveA = 0;
-          moveB = overlap;
-        } else if (hubIds.has(b.id)) {
-          moveA = overlap;
-          moveB = 0;
-        } else {
-          moveA = overlap / 2;
-          moveB = overlap / 2;
-        }
-        a.x -= ux * moveA;
-        a.y -= uy * moveA;
-        b.x += ux * moveB;
-        b.y += uy * moveB;
-        moved = Math.max(moved, Math.max(moveA, moveB));
-      }
-    }
-
-    // 轴线上的菱形被轻轻拉回原位
-    for (const [relId, target] of relAttractors) {
-      const node = nodes.find((n) => n.id === relId);
-      if (!node) continue;
-      node.x = node.x * 0.85 + target.x * 0.15;
-      node.y = node.y * 0.85 + target.y * 0.15;
-    }
-
-    if (moved < 0.3) break;
-  }
-}
 
 function packComponents(nodes: RenderNode[], edges: RenderEdge[]): void {
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -876,12 +1290,12 @@ function packComponents(nodes: RenderNode[], edges: RenderEdge[]): void {
     return bb.w * bb.h - ba.w * ba.h;
   });
 
-  const PADDING = 90;
+  const PADDING = 64;
   const totalArea = sorted.reduce((sum, list) => {
     const b = boundsOf(list);
     return sum + (b.w + PADDING) * (b.h + PADDING);
   }, 0);
-  const maxWidth = Math.max(1200, Math.sqrt(totalArea * 2.4));
+  const maxWidth = Math.max(1500, Math.sqrt(totalArea * 3));
 
   let cursorX = 0;
   let cursorY = 0;

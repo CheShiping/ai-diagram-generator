@@ -3,9 +3,11 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import {
   aiToDiagram,
+  appendAttributesToDiagram,
   cardinalityOf,
   existingEntityPairs,
   tablesToDiagram,
+  type AiAttributePatch,
   type AiRelationship,
   type ErDiagram,
   type ParsedTable,
@@ -166,6 +168,19 @@ export const useDiagramStore = defineStore('diagram', {
 
       this.diagram = { nodes, links };
       return added;
+    },
+
+    /**
+     * 把 AI 建议的缺失属性并入当前图。返回实际新增的属性数量。
+     * 已存在的属性名会被跳过；实体已有主键时不会新增第二个主键。
+     */
+    appendAttributes(patches: AiAttributePatch[]): number {
+      const result = appendAttributesToDiagram(this.diagram, patches);
+      if (result.added > 0) this.diagram = result.diagram;
+      if (result.warnings.length > 0) {
+        this.warnings = [...this.warnings, ...result.warnings];
+      }
+      return result.added;
     },
 
     setLayout(kind: LayoutKind): void {

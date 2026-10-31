@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   aiToDiagram,
+  appendAttributesToDiagram,
   cardinalityOf,
   diagramToAiEntities,
   tablesToDiagram,
@@ -198,11 +199,79 @@ describe('cardinalityOf', () => {
 });
 
 describe('diagramToAiEntities', () => {
-  it('从图中还原实体与属性，供 AI 补关系使用', () => {
+  it('从图中还原实体与属性，供 AI 补全使用', () => {
     const { diagram } = tablesToDiagram(TABLES, { showComment: true });
     const entities = diagramToAiEntities(diagram);
     expect(entities).toHaveLength(2);
     expect(entities[0].name).toBe('班级');
     expect(entities[0].attributes.map((a) => a.name)).toEqual(['班级ID', '班级名称']);
+  });
+});
+
+describe('appendAttributesToDiagram', () => {
+  it('补充缺失属性并跳过已存在的同名属性', () => {
+    const { diagram } = tablesToDiagram(TABLES, { showComment: true });
+    const result = appendAttributesToDiagram(diagram, [
+      {
+        entity: '班级',
+        attributes: [{ name: '班主任' }, { name: '班级名称' }, { name: '班级ID', primaryKey: true }],
+      },
+      {
+        entity: '学生',
+        attributes: [{ name: '手机号' }],
+      },
+    ]);
+
+    expect(result.added).toBe(2);
+    expect(result.warnings.some((w) => w.includes('班级名称'))).toBe(true);
+
+    const addedNames = result.diagram.nodes
+      .filter((n) => n.type === 'attribute' && n.id.includes('#ai-'))
+      .map((n) => n.name)
+      .sort();
+    expect(addedNames).toEqual(['手机号', '班主任']);
+
+    for (const node of result.diagram.nodes) {
+      if (node.type !== 'attribute' || !node.id.includes('#ai-')) continue;
+      expect(node.parent).toBeTruthy();
+      expect(result.diagram.links.some((l) => l.type === 'attribute' && l.target === node.id)).toBe(true);
+    }
+  });
+
+  it('实体已有主键时，新增属性不会变成第二个主键', () => {
+    const { diagram } = tablesToDiagram(TABLES, { showComment: true });
+    const result = appendAttributesToDiagram(diagram, [
+      { entity: '班级', attributes: [{ name: '新主键', primaryKey: true }] },
+    ]);
+
+    const added = result.diagram.nodes.find((n) => n.name === '新主键')!;
+    expect(added.isPrimaryKey).toBe(false);
+    expect(result.added).toBe(1);
+  });
+
+  it('实体没有主键时允许新增一个主键属性', () => {
+    const { diagram } = aiToDiagram({
+      entities: [{ name: '日志', attributes: [] }],
+      relationships: [],
+    });
+    const result = appendAttributesToDiagram(diagram, [
+      { entity: '日志', attributes: [{ name: '日志编号', primaryKey: true }, { name: '内容', primaryKey: true }] },
+    ]);
+
+    const added = result.diagram.nodes.filter((n) => n.id.includes('#ai-'));
+    expect(added).toHaveLength(2);
+    expect(added.filter((n) => n.isPrimaryKey)).toHaveLength(1);
+  });
+
+  it('未知实体与空补丁被忽略并告警', () => {
+    const { diagram } = tablesToDiagram(TABLES, { showComment: true });
+    const result = appendAttributesToDiagram(diagram, [
+      { entity: '不存在', attributes: [{ name: '字段' }] },
+      { entity: '班级', attributes: [] },
+    ]);
+
+    expect(result.added).toBe(0);
+    expect(result.diagram).toBe(diagram);
+    expect(result.warnings[0]).toContain('不存在');
   });
 });

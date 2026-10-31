@@ -1,19 +1,34 @@
 /**
- * AI 能力封装：自然语言 → ER 结构、已有实体 → 补充联系。
+ * AI 能力封装：自然语言 → ER 结构、已有实体 → 补充联系与缺失属性。
  * 负责调用模型、解析 JSON，并做严格的结构规整（过滤脏数据）。
  */
 
-import type { AiAttribute, AiEntity, AiRelationship, AiResult, RelationKind } from '../../shared/er-model';
+import type {
+  AiAttribute,
+  AiAttributePatch,
+  AiCompletionResult,
+  AiEntity,
+  AiRelationship,
+  AiResult,
+  RelationKind,
+} from '../../shared/er-model';
 import { chat, extractJson, readLlmConfig } from './ai-client';
 import {
+  COMPLETE_ER_SYSTEM_PROMPT,
   GENERATE_ER_SYSTEM_PROMPT,
-  GENERATE_RELATIONSHIPS_SYSTEM_PROMPT,
+  RELATIONSHIPS_ONLY_SYSTEM_PROMPT,
+  buildCompleteErUserPrompt,
   buildGenerateErUserPrompt,
-  buildGenerateRelationshipsUserPrompt,
+  buildRelationshipsOnlyUserPrompt,
 } from './prompts';
 
 export interface AiGenerateOutcome {
   data: AiResult;
+  warnings: string[];
+}
+
+export interface AiCompletionOutcome {
+  data: AiCompletionResult;
   warnings: string[];
 }
 
@@ -32,7 +47,28 @@ export async function generateErFromRequirement(requirement: string): Promise<Ai
   return { data, warnings };
 }
 
-/** 已有实体 → 补充联系。hint 为用户明确指定「谁连谁」的补充说明。 */
+/**
+ * 已有实体 → 补充联系 + 缺失属性。
+ * hint 是用户提供的业务描述或补充说明，也是新增属性的唯一依据。
+ */
+export async function generateErCompletion(
+  entities: AiEntity[],
+  hint = '',
+): Promise<AiCompletionOutcome> {
+  const config = readLlmConfig();
+
+  const content = await chat(config, [
+    { role: 'system', content: COMPLETE_ER_SYSTEM_PROMPT },
+    { role: 'user', content: buildCompleteErUserPrompt(entities, hint) },
+  ]);
+
+  const warnings: string[] = [];
+  const raw = extractJson(content);
+  const data = normalizeCompletion(raw, entities, warnings);
+  return { data, warnings };
+}
+
+/** 兼容旧接口：只返回补充的联系，不处理属性建议。 */
 export async function generateRelationships(
   entities: AiEntity[],
   hint = '',
@@ -40,18 +76,14 @@ export async function generateRelationships(
   const config = readLlmConfig();
 
   const content = await chat(config, [
-    { role: 'system', content: GENERATE_RELATIONSHIPS_SYSTEM_PROMPT },
-    { role: 'user', content: buildGenerateRelationshipsUserPrompt(entities, hint) },
+    { role: 'system', content: RELATIONSHIPS_ONLY_SYSTEM_PROMPT },
+    { role: 'user', content: buildRelationshipsOnlyUserPrompt(entities, hint) },
   ]);
 
   const warnings: string[] = [];
   const raw = extractJson(content);
-  const container = isRecord(raw) ? raw : {};
-  const list = Array.isArray(container.relationships) ? container.relationships : [];
-
-  const known = new Set(entities.map((e) => e.name));
-  const relationships = normalizeRelationships(list, known, warnings);
-  return { data: relationships, warnings };
+  const data = normalizeCompletion(raw, entities, warnings, false);
+  return { data: data.relationships, warnings };
 }
 
 /* ------------------------------------------------------------------ */
@@ -87,6 +119,91 @@ export function normalizeAiResult(raw: unknown, warnings: string[] = []): AiResu
   const relationships = normalizeRelationships(relationshipsRaw, seenName, warnings);
 
   return { entities, relationships };
+}
+
+/**
+ * 规整 AI 补全结果：联系 + 属性补丁。
+ * 属性补丁只保留图中已存在的实体，并过滤掉实体现有属性。
+ */
+export function normalizeCompletion(
+  raw: unknown,
+  entities: AiEntity[],
+  warnings: string[] = [],
+  includeAttributes = true,
+): AiCompletionResult {
+  const container = isRecord(raw)
+    ? raw
+    : Array.isArray(raw)
+      ? { relationships: raw }
+      : null;
+  if (!container) {
+    throw new Error('大模型返回的不是 JSON 对象');
+  }
+
+  const knownNames = new Set(entities.map((e) => e.name));
+  const existingByEntity = new Map<string, Set<string>>();
+  for (const entity of entities) {
+    existingByEntity.set(
+      entity.name,
+      new Set((entity.attributes ?? []).map((attr) => attributeKey(attr.name))),
+    );
+  }
+
+  const relationshipsRaw = Array.isArray(container.relationships) ? container.relationships : [];
+  const relationships = normalizeRelationships(relationshipsRaw, knownNames, warnings);
+
+  const attributes: AiAttributePatch[] = [];
+  if (includeAttributes) {
+    const patchSource = [
+      container.attributes,
+      container.attributeSuggestions,
+      container.entityAttributes,
+      container.entities,
+    ].find((value): value is unknown[] => Array.isArray(value));
+    const patchesRaw = patchSource ?? [];
+    const seenByEntity = new Map<string, Set<string>>();
+
+    for (const item of patchesRaw) {
+      if (!isRecord(item)) continue;
+      const grouped = Array.isArray(item.attributes);
+      const entityName = text(item.entity) || (grouped ? text(item.name) : '');
+      if (!entityName) continue;
+      if (!knownNames.has(entityName)) {
+        warnings.push(`属性补全引用了不存在的实体「${entityName}」，已忽略`);
+        continue;
+      }
+
+      // 兼容两种模型输出：{ entity, attributes: [...] } 或平铺的 { entity, name }
+      const list = grouped
+        ? normalizeAttributes(item.attributes)
+        : text(item.name)
+          ? [{ name: text(item.name), primaryKey: Boolean(item.primaryKey) }]
+          : [];
+      if (list.length === 0) continue;
+
+      const existing = existingByEntity.get(entityName) ?? new Set<string>();
+      const seen = seenByEntity.get(entityName) ?? new Set<string>();
+      const kept: AiAttribute[] = [];
+
+      for (const attr of list) {
+        const key = attributeKey(attr.name);
+        if (existing.has(key)) {
+          warnings.push(`实体「${entityName}」已有属性「${attr.name}」，已跳过`);
+          continue;
+        }
+        if (seen.has(key)) continue;
+        seen.add(key);
+        kept.push(attr);
+      }
+
+      if (kept.length > 0) {
+        seenByEntity.set(entityName, seen);
+        attributes.push({ entity: entityName, attributes: kept });
+      }
+    }
+  }
+
+  return { relationships, attributes };
 }
 
 function normalizeRelationships(list: unknown[], knownNames: Set<string>, warnings: string[]): AiRelationship[] {
@@ -169,4 +286,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function text(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
+}
+
+function attributeKey(name: string): string {
+  return name.trim().toLowerCase();
 }

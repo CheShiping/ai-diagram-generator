@@ -1,6 +1,13 @@
 /** 后端接口封装。 */
 
-import type { AiEntity, AiRelationship, AiResult, ParsedTable } from '@shared/er-model';
+import type {
+  AiAttributePatch,
+  AiCompletionResult,
+  AiEntity,
+  AiRelationship,
+  AiResult,
+  ParsedTable,
+} from '@shared/er-model';
 
 const BASE = '/api';
 const ACCESS_CODE_KEY = 'sql2er.accessCode';
@@ -86,12 +93,16 @@ export async function generateEr(prompt: string): Promise<{ result: AiResult; wa
   return { result: res.data!, warnings: res.warnings ?? [] };
 }
 
-/** 已有实体 → 补充联系。hint 用于明确指定「谁连谁」。 */
-export async function generateRelationships(
+/** 已有实体 → 补充联系 + 描述中提到但图中没有的属性。hint 为业务描述或补充说明。 */
+export async function completeEr(
   entities: AiEntity[],
   hint = '',
-): Promise<{ relationships: AiRelationship[]; warnings: string[] }> {
+): Promise<{ relationships: AiRelationship[]; attributes: AiAttributePatch[]; warnings: string[] }> {
   const body = hint.trim() ? { entities, hint: hint.trim() } : { entities };
-  const res = await post<AiRelationship[]>('/ai/generate-relationships', body);
-  return { relationships: res.data ?? [], warnings: res.warnings ?? [] };
+  const res = await post<AiCompletionResult>('/ai/complete-er', body);
+  return {
+    relationships: res.data?.relationships ?? [],
+    attributes: res.data?.attributes ?? [],
+    warnings: res.warnings ?? [],
+  };
 }

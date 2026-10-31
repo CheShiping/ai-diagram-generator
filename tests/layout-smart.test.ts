@@ -50,11 +50,61 @@ const TABLES: ParsedTable[] = [
   },
 ];
 
-function buildScene() {
-  const { diagram } = tablesToDiagram(TABLES, { showComment: false });
+const BIG_COLUMNS = [
+  { name: 'id', comment: '编号', primaryKey: true, type: 'BIGINT' },
+  ...Array.from({ length: 24 }, (_, i) => ({
+    name: `col_${i}`,
+    comment: `属性${i}`,
+    primaryKey: false,
+    type: 'VARCHAR',
+  })),
+  { name: 'left_id', comment: '', primaryKey: false, type: 'BIGINT' },
+  { name: 'right_id', comment: '', primaryKey: false, type: 'BIGINT' },
+];
+
+const BIG_TABLES: ParsedTable[] = [
+  {
+    tableName: 'big_center',
+    tableComment: '大表',
+    columns: BIG_COLUMNS,
+    foreignKeys: [
+      { name: 'fk_left', columns: ['left_id'], refTable: 'big_left', refColumns: ['id'] },
+      { name: 'fk_right', columns: ['right_id'], refTable: 'big_right', refColumns: ['id'] },
+    ],
+  },
+  {
+    tableName: 'big_left',
+    tableComment: '左表',
+    columns: [{ name: 'id', comment: '编号', primaryKey: true, type: 'BIGINT' }],
+    foreignKeys: [],
+  },
+  {
+    tableName: 'big_right',
+    tableComment: '右表',
+    columns: [{ name: 'id', comment: '编号', primaryKey: true, type: 'BIGINT' }],
+    foreignKeys: [],
+  },
+];
+
+function buildScene(tables: ParsedTable[] = TABLES) {
+  const { diagram } = tablesToDiagram(tables, { showComment: false });
   const nodes = prepareNodes(diagram.nodes);
   const edges = prepareEdges(diagram.links);
   return { nodes, edges };
+}
+
+function largestHub(nodes: ReturnType<typeof prepareNodes>) {
+  let hub = nodes[0];
+  let attrs = nodes.filter((n) => n.type === 'attribute' && n.parent === hub.id);
+  for (const node of nodes) {
+    if (node.type === 'attribute') continue;
+    const list = nodes.filter((n) => n.type === 'attribute' && n.parent === node.id);
+    if (list.length > attrs.length) {
+      hub = node;
+      attrs = list;
+    }
+  }
+  return { hub, attrs };
 }
 
 describe('layoutSmart', () => {
@@ -120,5 +170,51 @@ describe('layoutSmart', () => {
     for (const node of onlyAttrs) {
       expect(Number.isFinite(node.x)).toBe(true);
     }
+  });
+
+  it('二十多个属性仍贴着 hub 分层聚集', () => {
+    const { nodes, edges } = buildScene(BIG_TABLES);
+    layoutSmart(nodes, edges);
+
+    const { hub, attrs } = largestHub(nodes);
+    expect(attrs.length).toBeGreaterThanOrEqual(24);
+
+    let radius = 0;
+    for (const attr of attrs) {
+      radius = Math.max(
+        radius,
+        Math.hypot(attr.x - hub.x, attr.y - hub.y) + Math.max(attr.w, attr.h) / 2,
+      );
+    }
+    // 旧实现会把所有属性摊在一个大圆上（半径 500+），紧凑排布应在 280 内
+    expect(radius).toBeLessThan(280);
+  });
+
+  it('属性之间不会明显重叠', () => {
+    const { nodes, edges } = buildScene(BIG_TABLES);
+    layoutSmart(nodes, edges);
+
+    const attrs = nodes.filter((n) => n.type === 'attribute');
+    for (let i = 0; i < attrs.length; i += 1) {
+      for (let j = i + 1; j < attrs.length; j += 1) {
+        const a = attrs[i];
+        const b = attrs[j];
+        const overlapX = a.w / 2 + b.w / 2 - Math.abs(a.x - b.x);
+        const overlapY = a.h / 2 + b.h / 2 - Math.abs(a.y - b.y);
+        // 允许椭圆外接矩形最多 4px 的保守重叠
+        expect(overlapX > 4.5 && overlapY > 4.5).toBe(false);
+      }
+    }
+  });
+
+  it('大表布局仍然确定性', () => {
+    const first = buildScene(BIG_TABLES);
+    layoutSmart(first.nodes, first.edges);
+    const second = buildScene(BIG_TABLES);
+    layoutSmart(second.nodes, second.edges);
+
+    const a = first.nodes.map((n) => `${n.id}:${n.x.toFixed(3)},${n.y.toFixed(3)}`).sort();
+    const b = second.nodes.map((n) => `${n.id}:${n.x.toFixed(3)},${n.y.toFixed(3)}`).sort();
+    expect(a).toEqual(b);
   });
 });

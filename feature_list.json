@@ -1,0 +1,44 @@
+{
+  "features": [
+    {
+      "id": "feat-001",
+      "name": "SQL 解析与 ER 模型转换",
+      "description": "解析 MySQL 建表 SQL 中的表、字段、主键和外键，并转换为共享 ER 图模型；后续变更需保持多语句、注释和关联表行为。",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "npm test 通过：tests/sql-parser.test.ts（9 项）和 tests/er-model.test.ts（16 项）；npm run typecheck 通过。"
+    },
+    {
+      "id": "feat-002",
+      "name": "智能 ER 图布局",
+      "description": "为实体、属性和联系生成稳定、有限的布局坐标；属性按联系方向分槽、由内向外扫描半径并避让节点与连线，形成紧凑多层环；变更布局时更新对应测试并检查构建。",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "npm test 通过：tests/layout-smart.test.ts（8 项，含 25 属性紧凑性、属性不重叠、大表确定性）；npm run typecheck 与 npm run build 通过。真实 13 表测试 SQL：167 个属性布局约 200ms，画布由 3365×1896 收缩到 2481×1215。"
+    },
+    {
+      "id": "feat-003",
+      "name": "draw.io 图形导入与导出",
+      "description": "支持陈式 ER 图的 draw.io XML 导出及 XML、压缩格式导入，并保留图元、主键、连线与基数。",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "npm test 通过：tests/drawio.test.ts（6 项）和 tests/drawio-import.test.ts（17 项）；npm run typecheck 与 npm run build 通过。"
+    },
+    {
+      "id": "feat-004",
+      "name": "AI 生成实体关系",
+      "description": "通过 OpenAI 兼容服务从自然语言生成 ER 数据，或为已有实体建议联系；修改时保持 API 结构并为可离线验证的逻辑补充测试。",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "现有功能和配置见 README.md；npm run typecheck 与 npm run build 通过。未调用外部模型，真实服务请求未作端到端验证。"
+    },
+    {
+      "id": "feat-005",
+      "name": "AI 补全联系与缺失属性",
+      "description": "在 AI 补关系中同时根据用户描述补充图中缺失的实体属性；属性合并保持去重、主键唯一，并保留旧接口兼容。",
+      "dependencies": ["feat-004"],
+      "status": "done",
+      "evidence": "npm test 通过：tests/ai-completion.test.ts（7 项）和 tests/er-model.test.ts（16 项，含属性合并去重与主键约束）；npm run typecheck 与 npm run build 通过。用本地 mock LLM 冒烟验证 /api/ai/complete-er 同时返回联系与属性，旧接口仅返回联系；未调用真实模型。"
+    }
+  ]
+}
