@@ -1,0 +1,42 @@
+{
+  "name": "sql2er",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SQL / 自然语言转陈式 ER 图工具",
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c cyan,green \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "tsx server/index.ts",
+    "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@guanmingchiu/sqlparser-ts": "^0.63.0",
+    "cors": "^2.8.5",
+    "d3": "^7.9.0",
+    "element-plus": "^2.11.8",
+    "elkjs": "^0.11.0",
+    "express": "^4.21.2",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.22"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/d3": "^7.4.3",
+    "@types/express": "^4.17.23",
+    "@types/node": "^22.18.0",
+    "@vercel/node": "^5.3.9",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "happy-dom": "^21.0.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.4",
+    "vue-tsc": "^3.1.1"
+  }
+}

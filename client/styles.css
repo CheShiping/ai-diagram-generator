@@ -1,0 +1,56 @@
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  color: #1f2d3d;
+  background: #f7f9fc;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+}
+
+.er-node {
+  transition: filter 0.15s ease;
+}
+
+.er-node:hover {
+  filter: drop-shadow(0 2px 8px rgba(61, 126, 255, 0.25));
+}
+
+.er-svg text {
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cfd9e6;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #b6c3d4;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
