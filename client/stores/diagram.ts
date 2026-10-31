@@ -183,6 +183,23 @@ export const useDiagramStore = defineStore('diagram', {
       return result.added;
     },
 
+    /** 批量重命名节点（只改显示名，不改 id / 连线关系） */
+    renameNodes(names: Record<string, string>): void {
+      const ids = new Set(Object.keys(names));
+      if (!ids.size) return;
+
+      let changed = false;
+      const nodes = this.diagram.nodes.map((node) => {
+        if (!ids.has(node.id)) return node;
+        const name = (names[node.id] ?? '').trim();
+        if (!name || name === node.name) return node;
+        changed = true;
+        return { ...node, name };
+      });
+
+      if (changed) this.diagram = { nodes, links: this.diagram.links };
+    },
+
     setLayout(kind: LayoutKind): void {
       this.layoutKind = kind;
     },

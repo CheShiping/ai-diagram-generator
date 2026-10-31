@@ -39,6 +39,14 @@
       "dependencies": ["feat-004"],
       "status": "done",
       "evidence": "npm test 通过：tests/ai-completion.test.ts（7 项）和 tests/er-model.test.ts（16 项，含属性合并去重与主键约束）；npm run typecheck 与 npm run build 通过。用本地 mock LLM 冒烟验证 /api/ai/complete-er 同时返回联系与属性，旧接口仅返回联系；未调用真实模型。"
+    },
+    {
+      "id": "feat-006",
+      "name": "画布多选与编辑交互",
+      "description": "支持滚轮缩放、右键平移、左键节点拖拽/框选、Shift 多选、双击改名、Ctrl+Z 撤销；多选或拖动实体时属性随之移动。",
+      "dependencies": ["feat-002"],
+      "status": "done",
+      "evidence": "npm test 63 项、npm run typecheck 与 npm run build 通过；CDP 实测：Shift 多选 2 个、框选 4 个、整组拖动位移一致且撤销后恢复、改名后撤销恢复、滚轮缩放与右键平移均生效。"
     }
   ]
 }
