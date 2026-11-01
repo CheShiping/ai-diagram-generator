@@ -29,12 +29,18 @@
 - [x] 新增 `POST /api/ai/generate-module-tree` 与功能树提示词：层级深度由描述决定，单根节点，禁止输出属性/坐标/样式。
 - [x] `App.vue` 顶部增加「ER 图 / 功能结构图」模式切换、v2.0 标识；ER 全部入口与逻辑保持不变；FM 标识沿用蓝色主题。
 - [x] 版本号升至 2.0.0，更新 README、`feature_list.json` 与本文件。
+- [x] 2026-11-01 Edge（Bing 搜索）SEO 优化：
+  - `client/index.html` 重写 head：含核心关键词的中文 title/description、`meta keywords`（Bing 官方确认的排名信号）、`robots`、canonical、Open Graph + Twitter Card、schema.org `WebApplication` JSON-LD 结构化数据、`noscript` 降级文案；保留 Bing 验证 meta `msvalidate.01` 占位注释，待站长工具领取后填入。
+  - 新增 `client/public/robots.txt`（允许所有爬虫 + 指向 sitemap）与 `client/public/sitemap.xml`（单页站点，priority 1.0）。
+  - 新增 `client/public/favicon.svg`（实体矩形-联系菱形-属性椭圆示意图标）并在 head 引用。
+  - 2026-11-01 Bing 站长验证码已填入 `msvalidate.01`（`43125117F95CBED0184CB31C96A73B70`），`npm run build` 通过（`dist/index.html` 2.72 kB）；待 push 部署后在 Bing 站长工具完成验证并提交 sitemap。
 
 ## 验证证据
 
 - [x] `npm run typecheck` — 通过。
 - [x] `npm test` — 通过：9 个测试文件、92 项测试；其中 `tests/module-tree.test.ts` 17 项、`tests/module-layout.test.ts` 9 项、`tests/module-drawio.test.ts` 2 项。
 - [x] `npm run build` — 通过：Vite production build（2212 modules）。
+- [x] 2026-11-01 SEO 改动验证：`npm run typecheck` 通过；`npm test` 通过（9 文件、92 项）；`npm run build` 通过，确认 `dist/` 下 `robots.txt`、`sitemap.xml`、`favicon.svg` 已随 public 目录复制进产物，`dist/index.html` 含新 meta 与 JSON-LD（2.82 kB）。
 - [x] 2026-11-01 部署 Vercel（项目 `csps-projects-1abeb98f/ai-diagram-generator`，生产域名 `ai-diagram-generator-mu.vercel.app`）并修复两个线上问题：
   - 修复 1：`@vercel/node` 不会把 `api/` 之外的相对导入打进函数包，`api/[...all].ts` 线上报 `ERR_MODULE_NOT_FOUND`。方案：入口移到 `server/vercel.ts`，新增 `npm run build:api`（esbuild `--bundle --packages=external`）生成自包含的 `api/index.js`（产物需提交进仓库，`functions` 校验发生在 buildCommand 之前）。
   - 修复 2：Vercel 的 catch-all 函数名（`api/[...all].js`）只匹配单段路径，`/api/ai/generate-er` 等多级路径在 Vercel 层 404。方案：函数改固定名 `api/index.js`，`vercel.json` 增加 `rewrites` 把 `/api/(.*)` 转发到 `/api/index`，函数内拿到原始路径，Express 路由不变。
