@@ -150,7 +150,9 @@ export function edgeGeometry(from: RenderNode, to: RenderNode, gap = 3): EdgeGeo
 }
 
 /** 计算整张图的包围盒，用于 fit view 与导出 */
-export function computeBounds(nodes: RenderNode[]): { minX: number; minY: number; maxX: number; maxY: number } {
+export function computeBounds(
+  nodes: Array<Pick<RenderNode, 'x' | 'y' | 'w' | 'h'>>,
+): { minX: number; minY: number; maxX: number; maxY: number } {
   if (nodes.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   let minX = Infinity;
   let minY = Infinity;

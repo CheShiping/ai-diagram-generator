@@ -1,4 +1,4 @@
-# sql2er · SQL / 自然语言转陈式 ER 图
+# sql2er · SQL / ER 图 & 功能结构图
 
 把 MySQL 建表语句或一段业务需求，转换成**陈式（Chen）ER 图**：
 
@@ -6,14 +6,21 @@
 - **属性** → 椭圆（主键加下划线）
 - **联系** → 菱形（两端标注基数 `1 / N / M`）
 
-无水印、无付费墙、无登录、无批量导出。整体为黑白线稿风格：白底、黑线、直角矩形，与教科书示例一致。
+也可以把系统描述、缩进大纲或 Markdown 标题转换成**功能结构图**（模块图）：
+
+- 第 1–2 层（系统 / 模块）横排文字
+- 第 3 层起（功能 / 子功能）逐字竖排
+- 同层所有矩形按本层最长文案统一宽高，内容水平垂直居中
+- 黑白线稿：白底、黑色 1.5px 直角矩形、无箭头直角折线
+
+无水印、无付费墙、无登录。顶部可在「ER 图 / 功能结构图」之间切换。
 
 ## 功能
 
 | 输入 | 说明 |
 |---|---|
 | SQL 建表 | 后端用 `@guanmingchiu/sqlparser-ts`（datafusion-sqlparser-rs 的 WASM 绑定）解析 MySQL AST，提取表名、中文 `COMMENT`、主键、`FOREIGN KEY`（含 `ALTER TABLE ... ADD CONSTRAINT` 形式）。外键列不再重复画成属性；「恰好两个外键、指向两张不同的表、且没有被别的表引用」的关联表会直接画成多对多联系菱形，其余列挂成菱形上的属性 |
-| 自然语言 | 后端调用 OpenAI 兼容的 Chat Completions，把需求转成结构化实体/联系 JSON |
+| 自然语言 | 后端调用 OpenAI 兼容的 Chat Completions：**核心生成**先产出实体与主要联系；**全量生成**使用独立提示词，一次请求直接产出更完整的实体、属性与联系 |
 | 导入 .drawio | 解析 draw.io 文件（未压缩 XML 与默认的 base64+deflate 压缩格式均可），按形状还原实体/属性/联系、`<u>` 主键与原始排版 |
 | AI 补全 | 基于当前图里的实体与属性，推断缺失联系，并补充业务描述中提到、但图中没有的属性；同名属性自动跳过，已有主键的实体不会新增第二个主键 |
 
@@ -27,6 +34,22 @@
 
 画布操作：滚轮缩放、右键拖拽平移、左键拖拽节点或框选、Shift 多选、双击改名、Ctrl+Z 撤销；拖动实体/联系会带着其属性一起移动，框选多个节点后可整组拖动。
 
+## 功能结构图（v2.0）
+
+| 输入 | 说明 |
+|---|---|
+| 结构树编辑 | 左侧树形列表增删改、拖拽调整层级与同级顺序、一键清空 / 恢复示例 / 换一换（内置 3 个示例） |
+| 大纲文本 | 空格或 Tab 缩进层级，或 Markdown 标题 `# 系统 / ## 模块 / ### 功能`；行首 `-`、`*`、`•` 会被忽略 |
+| AI 生成 | 输入系统描述，调用 OpenAI 兼容模型生成「系统 → 模块 → 功能」树，层级深度由描述决定（最多 6 层、200 个节点） |
+
+布局与交互：
+
+- 叶子节点从左到右等距排布，父节点居中于首尾子节点；同层做最多 8 轮重叠修正
+- 同层统一尺寸：系统默认最小 120×40、模块 100×36、竖排功能 32×32，再按本层最长文案自适应
+- 连接线：父框底边中点 → 水平折线 → 子框顶边中点，无箭头
+- 画布：滚轮缩放、右键平移、拖拽矩形并显示虚线吸附、双击改名、Ctrl+Z 撤销、全屏编辑
+- 导出：PNG、SVG、draw.io（竖排文字按每字一行保留，连线带折线路径点）
+
 ## 快速开始
 
 ```bash
@@ -37,7 +60,7 @@ npm run dev               # 同时启动后端(3001) 与前端(5173)
 
 打开 http://127.0.0.1:5173 。
 
-> SQL 模式不依赖大模型，`.env` 不填也能用；自然语言模式与 AI 补全需要配置模型。
+> SQL 模式、结构树编辑和大纲解析不依赖大模型，`.env` 不填也能用；自然语言生成、AI 补全和 AI 生成功能结构图需要配置模型。也可以点右上角「模型设置」，直接在界面填写接口地址、API Key 和模型名称；界面配置通过请求头覆盖 `.env`，留空字段继续沿用 `.env`，且只保存在当前浏览器。
 
 ### 环境变量
 
@@ -58,13 +81,16 @@ npm run dev               # 同时启动后端(3001) 与前端(5173)
 POST /api/parseSQL                    { sql: string } | { sqls: string[] }
   → data: { tables: ParsedTable[] }
 
-POST /api/ai/generate-er              { prompt: string }
+POST /api/ai/generate-er              { prompt: string, mode?: "core" | "full" }
   → data: { entities: [{ name, attributes: [{ name, primaryKey }] }],
             relationships: [{ source, target, type, text, attributes }] }
 
 POST /api/ai/complete-er              { entities: [{ name, attributes }], hint?: string }
   → data: { relationships: [{ source, target, type, text, attributes }],
             attributes: [{ entity, attributes: [{ name, primaryKey }] }] }
+
+POST /api/ai/generate-module-tree     { prompt: string }
+  → data: { tree: { name, children: [{ name, children: [...] }] } }
 
 POST /api/ai/generate-relationships    { entities: [{ name, attributes }], hint?: string }
   → data: [{ source, target, type, text, attributes }]   // 旧接口，仅返回联系
@@ -73,6 +99,9 @@ GET  /api/health
 ```
 
 `type` 取值：`oneToOne` | `oneToMany`（source 是 1 端）| `manyToMany`。
+`mode` 缺省为 `core`；`full` 使用独立的「全量生成」系统提示词，只请求一次，直接产出更完整的实体、属性与联系，不复用核心生成或补全链路。
+
+AI 接口还可以带 `x-llm-base-url`、`x-llm-api-key`、`x-llm-model` 请求头，用于覆盖服务端模型配置（界面「模型设置」就是这些请求头的封装）。
 
 ```bash
 curl -X POST http://127.0.0.1:3001/api/parseSQL \
@@ -105,13 +134,14 @@ sql2er/
 │   ├── routes/            # /api/parseSQL、/api/ai/*
 │   ├── services/          # sql-parser / ai-client / ai / prompts / rate-limit
 │   └── middleware/guard.ts
-├── shared/er-model.ts     # 前后端共享：图模型 + SQL/AI → 陈式图转换
+├── shared/er-model.ts     # 前后端共享：ER 图模型 + SQL/AI → 陈式图转换
+├── shared/module-tree.ts  # 前后端共享：功能结构树 + 大纲解析 + 树操作 + AI 结果规整
 ├── client/                # Vue 3 + Vite + Pinia + Element Plus
-│   ├── components/        # ErCanvas（D3 渲染）/ InputPanel / Toolbar
-│   ├── core/              # theme / geometry / layout / smart-layout / export / import
-│   ├── stores/diagram.ts
+│   ├── components/        # ErCanvas / ModuleCanvas / InputPanel / ModulePanel / Toolbar
+│   ├── core/              # theme / geometry / layout / smart-layout / module-layout / export / import
+│   ├── stores/            # diagram.ts / module.ts
 │   └── http/api.ts
-├── tests/                 # vitest：解析、转换、draw.io 导入导出
+├── tests/                 # vitest：解析、转换、布局、draw.io 导入导出、功能树
 ├── vercel.json
 └── vite.config.ts
 ```
@@ -132,4 +162,6 @@ npm run build        # 构建前端到 dist/
 - **图模型**统一为 `{ nodes, links }`，SQL 与 AI 两条输入路径都先转换成它再渲染，扩展新输入方式只需产出同样的结构。
 - **外键语义**：持外键的一方是「多」端，因此外键被画成 `持有表 --N--> 菱形 --1--> 被引用表`。
 - **菱形位置**：网格布局下，联系菱形自动落在两端实体连线的中点；同一对实体的多条联系会垂直错开。
+- **功能结构图布局**：第 0/1 层横排、第 2 层起竖排；同层宽高按本层最长文案对齐；叶子等距排布后把父节点居中，再迭代修正同层重叠；连线固定为「父框底边 → 水平段 → 子框顶边」。
+- **功能树编辑**：所有增删改与拖拽都会先深拷贝当前树，再写入撤销历史；拖动矩形只保存相对自动布局的偏移，可随时「重新排版」恢复。
 - **ELK 按需加载**，默认的环形网格布局不会下载它。

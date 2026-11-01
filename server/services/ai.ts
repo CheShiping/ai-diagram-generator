@@ -12,12 +12,14 @@ import type {
   AiResult,
   RelationKind,
 } from '../../shared/er-model';
-import { chat, extractJson, readLlmConfig } from './ai-client';
+import { chat, extractJson, readLlmConfig, type LlmConfigOverride } from './ai-client';
 import {
   COMPLETE_ER_SYSTEM_PROMPT,
+  GENERATE_ER_FULL_SYSTEM_PROMPT,
   GENERATE_ER_SYSTEM_PROMPT,
   RELATIONSHIPS_ONLY_SYSTEM_PROMPT,
   buildCompleteErUserPrompt,
+  buildGenerateErFullUserPrompt,
   buildGenerateErUserPrompt,
   buildRelationshipsOnlyUserPrompt,
 } from './prompts';
@@ -32,13 +34,25 @@ export interface AiCompletionOutcome {
   warnings: string[];
 }
 
-/** 自然语言需求 → 实体与联系 */
-export async function generateErFromRequirement(requirement: string): Promise<AiGenerateOutcome> {
-  const config = readLlmConfig();
+/** 自然语言需求 → 实体与联系；full 模式使用独立的「全量生成」提示词，只请求一次。 */
+export async function generateErFromRequirement(
+  requirement: string,
+  options: { mode?: 'core' | 'full'; config?: LlmConfigOverride } = {},
+): Promise<AiGenerateOutcome> {
+  const config = readLlmConfig(process.env, options.config);
+  const full = options.mode === 'full';
 
   const content = await chat(config, [
-    { role: 'system', content: GENERATE_ER_SYSTEM_PROMPT },
-    { role: 'user', content: buildGenerateErUserPrompt(requirement) },
+    {
+      role: 'system',
+      content: full ? GENERATE_ER_FULL_SYSTEM_PROMPT : GENERATE_ER_SYSTEM_PROMPT,
+    },
+    {
+      role: 'user',
+      content: full
+        ? buildGenerateErFullUserPrompt(requirement)
+        : buildGenerateErUserPrompt(requirement),
+    },
   ]);
 
   const warnings: string[] = [];
@@ -54,8 +68,9 @@ export async function generateErFromRequirement(requirement: string): Promise<Ai
 export async function generateErCompletion(
   entities: AiEntity[],
   hint = '',
+  configOverride?: LlmConfigOverride,
 ): Promise<AiCompletionOutcome> {
-  const config = readLlmConfig();
+  const config = readLlmConfig(process.env, configOverride);
 
   const content = await chat(config, [
     { role: 'system', content: COMPLETE_ER_SYSTEM_PROMPT },
@@ -72,8 +87,9 @@ export async function generateErCompletion(
 export async function generateRelationships(
   entities: AiEntity[],
   hint = '',
+  configOverride?: LlmConfigOverride,
 ): Promise<{ data: AiRelationship[]; warnings: string[] }> {
-  const config = readLlmConfig();
+  const config = readLlmConfig(process.env, configOverride);
 
   const content = await chat(config, [
     { role: 'system', content: RELATIONSHIPS_ONLY_SYSTEM_PROMPT },

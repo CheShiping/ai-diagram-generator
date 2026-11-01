@@ -47,6 +47,30 @@
       "dependencies": ["feat-002"],
       "status": "done",
       "evidence": "npm test 63 项、npm run typecheck 与 npm run build 通过；CDP 实测：Shift 多选 2 个、框选 4 个、整组拖动位移一致且撤销后恢复、改名后撤销恢复、滚轮缩放与右键平移均生效。"
+    },
+    {
+      "id": "feat-007",
+      "name": "核心生成与全量生成",
+      "description": "自然语言生成拆成核心/全量两个按钮；全量生成使用独立的「全量生成」系统提示词，单次请求直接产出完整实体、属性与联系，不复用核心生成或补全链路。",
+      "dependencies": ["feat-004"],
+      "status": "done",
+      "evidence": "mock 模型实测：full 模式仅请求 1 次，system prompt 为「全量生成」并返回 3 个实体/9 个属性；core 模式单独请求 1 次；npm run typecheck、npm test（64 项）、npm run build 通过。"
+    },
+    {
+      "id": "feat-008",
+      "name": "界面自定义模型设置",
+      "description": "顶部「模型设置」可在界面填写接口地址、API Key、模型名与访问码；通过请求头覆盖服务端 env，留空字段回落 env，配置只保存在当前浏览器。",
+      "dependencies": ["feat-004"],
+      "status": "done",
+      "evidence": "服务端 readLlmConfig 支持 override 并带测试；CDP 实测设置弹窗 4 个字段、保存后 localStorage 写入正确、顶部不再显示「访问码」；mock 模型在无有效 env 情况下通过请求头成功生成。"
+    },
+    {
+      "id": "feat-009",
+      "name": "系统功能结构图（v2.0）",
+      "description": "新增 ER 图 / 功能结构图模式切换并保留全部 ER 功能；功能结构图支持结构树增删改与拖拽排序、缩进/Markdown 大纲解析、AI 生成功能树；第 0/1 层横排、第 2 层起逐字竖排，同层按最长文案统一宽高，文字水平垂直居中；支持缩放平移、拖拽吸附、双击改名、Ctrl+Z、全屏与 PNG/SVG/draw.io 导出。",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "npm test 通过：tests/module-tree.test.ts（17 项）、tests/module-layout.test.ts（9 项）、tests/module-drawio.test.ts（2 项），全仓 92 项通过；npm run typecheck 与 npm run build 通过；浏览器实测根 129.6×40、模块 100×38、功能 32×96，同层尺寸一致、文字双向居中、全部 #000000 描边 + #ffffff 填充 + 1.5px 线宽；模式切换、树面板与导出入口正常。"
     }
   ]
 }

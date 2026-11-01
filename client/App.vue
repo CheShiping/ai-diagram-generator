@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { FullScreen, ScaleToOriginal } from '@element-plus/icons-vue';
-import { getStoredAccessCode, setStoredAccessCode } from '@/http/api';
+import {
+  getStoredAccessCode,
+  getStoredModelConfig,
+  setStoredAccessCode,
+  setStoredModelConfig,
+} from '@/http/api';
 import ErCanvas from '@/components/ErCanvas.vue';
 import InputPanel from '@/components/InputPanel.vue';
+import ModuleCanvas from '@/components/ModuleCanvas.vue';
+import ModulePanel from '@/components/ModulePanel.vue';
+import ModuleToolbar from '@/components/ModuleToolbar.vue';
 import Toolbar from '@/components/Toolbar.vue';
 import { buildDrawioXml } from '@/core/export/drawio';
+import { buildModuleDrawioXml } from '@/core/export/module-drawio';
 import {
   EXPORT_MIME,
   downloadBlob,
@@ -15,10 +24,19 @@ import {
   svgToPngBlob,
 } from '@/core/export/image';
 import { useDiagramStore } from '@/stores/diagram';
+import { useModuleStore } from '@/stores/module';
 
 const store = useDiagramStore();
-const canvasRef = ref<InstanceType<typeof ErCanvas> | null>(null);
+const moduleStore = useModuleStore();
+const erCanvasRef = ref<InstanceType<typeof ErCanvas> | null>(null);
+const moduleCanvasRef = ref<InstanceType<typeof ModuleCanvas> | null>(null);
+const mode = ref<'er' | 'module'>('er');
 const exporting = ref(false);
+const settingsOpen = ref(false);
+const settingsBaseUrl = ref('');
+const settingsApiKey = ref('');
+const settingsModel = ref('');
+const settingsAccessCode = ref('');
 
 /** 画布全屏：只隐藏左侧输入栏，标题栏与工具栏保留，整个窗口内放大画布 */
 const immersive = ref(false);
@@ -35,9 +53,9 @@ onMounted(() => window.addEventListener('keydown', onKeydown));
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
 async function handleExport(kind: 'drawio' | 'png' | 'svg'): Promise<void> {
-  const svg = canvasRef.value?.getSvg();
-  const nodes = canvasRef.value?.getNodes() ?? [];
-  const edges = canvasRef.value?.getEdges() ?? [];
+  const svg = erCanvasRef.value?.getSvg();
+  const nodes = erCanvasRef.value?.getNodes() ?? [];
+  const edges = erCanvasRef.value?.getEdges() ?? [];
 
   if (!svg || nodes.length === 0) {
     ElMessage.warning('当前没有可导出的图');
@@ -71,31 +89,72 @@ async function handleExport(kind: 'drawio' | 'png' | 'svg'): Promise<void> {
   }
 }
 
-function fitView(): void {
-  canvasRef.value?.fitView();
-}
+async function handleModuleExport(kind: 'drawio' | 'png' | 'svg'): Promise<void> {
+  const svg = moduleCanvasRef.value?.getSvg();
+  const nodes = moduleCanvasRef.value?.getNodes() ?? [];
+  const edges = moduleCanvasRef.value?.getEdges() ?? [];
 
-async function openSettings(): Promise<void> {
+  if (!svg || nodes.length === 0) {
+    ElMessage.warning('当前没有可导出的功能结构图');
+    return;
+  }
+
+  exporting.value = true;
   try {
-    const { value } = await ElMessageBox.prompt(
-      '如果服务端配置了 ACCESS_CODE，请在此填写访问码；留空表示不使用。',
-      '访问码设置',
-      {
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
-        inputValue: getStoredAccessCode(),
-        inputPlaceholder: '访问码（可留空）',
-      },
-    );
-    setStoredAccessCode((value ?? '').trim());
-    ElMessage.success('访问码已保存到本地');
-  } catch {
-    /* 用户取消 */
+    if (kind === 'drawio') {
+      const xml = buildModuleDrawioXml(nodes, edges, { title: '功能结构图' });
+      downloadText(xml, 'module-diagram.drawio', EXPORT_MIME.drawio);
+      ElMessage.success('已导出 draw.io 文件');
+      return;
+    }
+
+    const { xml, width, height } = serializeSvg(svg, nodes);
+
+    if (kind === 'svg') {
+      downloadText(xml, 'module-diagram.svg', EXPORT_MIME.svg);
+      ElMessage.success('已导出 SVG');
+      return;
+    }
+
+    const blob = await svgToPngBlob(xml, width, height, 2);
+    downloadBlob(blob, 'module-diagram.png');
+    ElMessage.success('已导出 PNG（2 倍分辨率）');
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '导出失败');
+  } finally {
+    exporting.value = false;
   }
 }
 
+function fitView(): void {
+  if (mode.value === 'module') moduleCanvasRef.value?.fitView();
+  else erCanvasRef.value?.fitView();
+}
+
+function openSettings(): void {
+  const modelConfig = getStoredModelConfig();
+  settingsBaseUrl.value = modelConfig.baseUrl;
+  settingsApiKey.value = modelConfig.apiKey;
+  settingsModel.value = modelConfig.model;
+  settingsAccessCode.value = getStoredAccessCode();
+  settingsOpen.value = true;
+}
+
+function saveSettings(): void {
+  const config = {
+    baseUrl: settingsBaseUrl.value.trim().replace(/\/+$/, ''),
+    apiKey: settingsApiKey.value.trim(),
+    model: settingsModel.value.trim(),
+  };
+  setStoredModelConfig(config);
+  setStoredAccessCode(settingsAccessCode.value.trim());
+  settingsOpen.value = false;
+  ElMessage.success('模型设置已保存到本地');
+}
+
 function clearDiagram(): void {
-  store.clear();
+  if (mode.value === 'module') moduleStore.clear();
+  else store.clear();
 }
 </script>
 
@@ -103,31 +162,55 @@ function clearDiagram(): void {
   <div :class="['app-shell', { immersive }]">
     <header class="app-header">
       <div class="brand">
-        <span class="logo">ER</span>
+        <span class="logo">{{ mode === 'module' ? 'FM' : 'ER' }}</span>
         <div class="titles">
-          <h1>SQL / 自然语言 → 陈式 ER 图</h1>
-          <p>实体＝矩形，属性＝椭圆，联系＝菱形，主键以下划线标注</p>
+          <h1>
+            {{ mode === 'module' ? '系统功能结构图' : 'SQL / 自然语言 → 陈式 ER 图' }}
+            <span class="version">v2.0</span>
+          </h1>
+          <p v-if="mode === 'module'">第 1–2 层横排，第 3 层起竖排；同层统一尺寸，内容水平垂直居中</p>
+          <p v-else>实体＝矩形，属性＝椭圆，联系＝菱形，主键以下划线标注</p>
         </div>
       </div>
       <div class="header-actions">
-        <el-button text size="small" @click="openSettings">访问码</el-button>
-        <el-button text size="small" :disabled="!store.hasDiagram" @click="clearDiagram">清空</el-button>
+        <el-radio-group v-model="mode" size="small" class="mode-switch">
+          <el-radio-button value="er">ER 图</el-radio-button>
+          <el-radio-button value="module">功能结构图</el-radio-button>
+        </el-radio-group>
+        <el-button text size="small" @click="openSettings">模型设置</el-button>
+        <el-button
+          text
+          size="small"
+          :disabled="mode === 'er' ? !store.hasDiagram : !moduleStore.hasTree"
+          @click="clearDiagram"
+        >
+          清空
+        </el-button>
       </div>
     </header>
 
     <main class="app-main">
       <aside class="side">
-        <InputPanel />
+        <InputPanel v-if="mode === 'er'" />
+        <ModulePanel v-else />
       </aside>
 
       <section class="stage">
-        <Toolbar @export="handleExport" @fit="fitView" />
+        <Toolbar v-if="mode === 'er'" @export="handleExport" @fit="fitView" />
+        <ModuleToolbar v-else @export="handleModuleExport" @fit="fitView" />
         <div class="canvas-wrap">
           <ErCanvas
-            ref="canvasRef"
+            v-if="mode === 'er'"
+            ref="erCanvasRef"
             :diagram="store.diagram"
             :layout-kind="store.layoutKind"
             :show-attributes="store.showAttributes"
+          />
+          <ModuleCanvas
+            v-else
+            ref="moduleCanvasRef"
+            :tree="moduleStore.tree"
+            :offsets="moduleStore.offsets"
           />
           <button
             type="button"
@@ -146,6 +229,46 @@ function clearDiagram(): void {
         </div>
       </section>
     </main>
+
+    <el-dialog
+      v-model="settingsOpen"
+      title="自定义模型设置"
+      width="520px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <div class="model-settings">
+        <p class="model-settings-tip">
+          留空则沿用服务端 .env 配置；这里保存的接口地址、Key 与模型名只作用于当前浏览器。
+        </p>
+        <label class="settings-label">接口地址</label>
+        <el-input
+          v-model="settingsBaseUrl"
+          placeholder="https://api.deepseek.com/v1"
+          spellcheck="false"
+        />
+        <label class="settings-label">API Key</label>
+        <el-input
+          v-model="settingsApiKey"
+          type="password"
+          show-password
+          autocomplete="off"
+          placeholder="留空沿用服务端配置"
+        />
+        <label class="settings-label">模型名称</label>
+        <el-input v-model="settingsModel" placeholder="deepseek-chat" spellcheck="false" />
+        <label class="settings-label">访问码（可选）</label>
+        <el-input
+          v-model="settingsAccessCode"
+          placeholder="服务端开启 ACCESS_CODE 时填写"
+          autocomplete="off"
+        />
+      </div>
+      <template #footer>
+        <el-button size="small" @click="settingsOpen = false">取消</el-button>
+        <el-button size="small" type="primary" @click="saveSettings">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -192,6 +315,20 @@ function clearDiagram(): void {
   font-size: 16px;
   font-weight: 600;
   color: #1f2d3d;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.version {
+  padding: 1px 6px;
+  border: 1px solid #1f2d3d;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: #1f2d3d;
+  background: #ffffff;
 }
 
 .titles p {
@@ -202,7 +339,12 @@ function clearDiagram(): void {
 
 .header-actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 10px;
+}
+
+.mode-switch {
+  margin-right: 4px;
 }
 
 .app-main {
@@ -278,6 +420,25 @@ function clearDiagram(): void {
   font-size: 13px;
   color: #4a5a70;
   z-index: 10;
+}
+
+.model-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.model-settings-tip {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: #92a1b6;
+  line-height: 1.7;
+}
+
+.settings-label {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #5b6b81;
 }
 
 @media (max-width: 1100px) {

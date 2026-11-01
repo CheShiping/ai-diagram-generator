@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AiEntity } from '../shared/er-model';
 import { normalizeCompletion } from '../server/services/ai';
+import { readLlmConfig } from '../server/services/ai-client';
 
 const ENTITIES: AiEntity[] = [
   {
@@ -119,5 +120,26 @@ describe('normalizeCompletion', () => {
 
     expect(result.attributes).toEqual([]);
     expect(warnings).toHaveLength(0);
+  });
+});
+
+describe('readLlmConfig', () => {
+  it('界面自定义配置覆盖 env，未填字段回落到 env', () => {
+    const env = {
+      LLM_BASE_URL: 'https://env.example/v1',
+      LLM_API_KEY: 'env-key',
+      LLM_MODEL: 'env-model',
+    } as NodeJS.ProcessEnv;
+
+    expect(
+      readLlmConfig(env, {
+        baseUrl: 'https://custom.example/v1',
+        model: 'custom-model',
+      }),
+    ).toEqual({
+      baseUrl: 'https://custom.example/v1',
+      apiKey: 'env-key',
+      model: 'custom-model',
+    });
   });
 });

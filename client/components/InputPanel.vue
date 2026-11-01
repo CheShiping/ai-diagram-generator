@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { generateEr, parseSql } from '@/http/api';
+import { generateEr, parseSql, type AiGenerateMode } from '@/http/api';
 import { SAMPLE_SQL, useDiagramStore } from '@/stores/diagram';
 
 const store = useDiagramStore();
@@ -11,6 +11,7 @@ const sqlText = ref(SAMPLE_SQL);
 const aiText = ref('');
 const sqlLoading = ref(false);
 const aiLoading = ref(false);
+const aiLoadingMode = ref<AiGenerateMode | null>(null);
 
 async function runSql(): Promise<void> {
   if (!sqlText.value.trim()) {
@@ -32,23 +33,31 @@ async function runSql(): Promise<void> {
   }
 }
 
-async function runAi(): Promise<void> {
+async function runAi(mode: AiGenerateMode): Promise<void> {
   const prompt = aiText.value.trim();
   if (!prompt) {
     ElMessage.warning('请先描述业务需求');
     return;
   }
   aiLoading.value = true;
+  aiLoadingMode.value = mode;
   try {
-    const { result, warnings } = await generateEr(prompt);
+    const { result, warnings } = await generateEr(prompt, mode);
     store.setFromAi(result, warnings);
+    const attributeCount = result.entities.reduce(
+      (total, entity) => total + entity.attributes.length,
+      0,
+    );
+    const label = mode === 'full' ? '全量生成成功' : '核心生成成功';
     ElMessage.success(
-      `生成成功：${result.entities.length} 个实体、${result.relationships.length} 条联系`,
+      `${label}：${result.entities.length} 个实体、${result.relationships.length} 条联系、${attributeCount} 个属性`,
     );
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '生成失败');
+    const label = mode === 'full' ? '全量生成失败' : '核心生成失败';
+    ElMessage.error(err instanceof Error ? err.message : label);
   } finally {
     aiLoading.value = false;
+    aiLoadingMode.value = null;
   }
 }
 
@@ -89,7 +98,7 @@ function fillAiSample(): void {
 
       <el-tab-pane label="自然语言" name="ai">
         <div class="pane-body">
-          <p class="hint">用一段业务描述，由大模型推断实体、属性与联系。</p>
+          <p class="hint">核心生成先给出主要实体与联系；全量生成会继续补全描述中提到的联系与属性。</p>
           <el-input
             v-model="aiText"
             type="textarea"
@@ -100,7 +109,21 @@ function fillAiSample(): void {
           />
           <div class="actions">
             <el-button text @click="fillAiSample">填入示例</el-button>
-            <el-button type="primary" :loading="aiLoading" @click="runAi">生成 ER 图</el-button>
+            <el-button
+              type="primary"
+              :loading="aiLoadingMode === 'full'"
+              :disabled="aiLoading"
+              @click="runAi('full')"
+            >
+              全量生成
+            </el-button>
+            <el-button
+              :loading="aiLoadingMode === 'core'"
+              :disabled="aiLoading"
+              @click="runAi('core')"
+            >
+              核心生成
+            </el-button>
           </div>
         </div>
       </el-tab-pane>

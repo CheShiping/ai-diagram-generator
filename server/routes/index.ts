@@ -5,6 +5,8 @@ import type { AiEntity } from '../../shared/er-model';
 import { HttpError, fail, ok } from '../http';
 import { createGuard } from '../middleware/guard';
 import { generateErCompletion, generateErFromRequirement, generateRelationships } from '../services/ai';
+import type { LlmConfigOverride } from '../services/ai-client';
+import { generateModuleTreeFromRequirement } from '../services/module-ai';
 import { parseSqlToTables } from '../services/sql-parser';
 
 type AsyncHandler = (req: Request, res: Response) => Promise<void>;
@@ -17,6 +19,15 @@ function asyncHandler(fn: AsyncHandler) {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+/** 前端「模型设置」通过请求头覆盖服务端 env；留空字段自动回落到 env */
+function llmOverrideFromRequest(req: Request): LlmConfigOverride {
+  return {
+    baseUrl: (req.header('x-llm-base-url') ?? '').trim(),
+    apiKey: (req.header('x-llm-api-key') ?? '').trim(),
+    model: (req.header('x-llm-model') ?? '').trim(),
+  };
 }
 
 /** 清洗前端传来的实体列表（名称 + 已有属性） */
@@ -80,7 +91,9 @@ export function createApiRouter(): Router {
       if (!prompt) throw new HttpError(400, '请提供需求描述（字段 prompt）');
       if (prompt.length > 100000) throw new HttpError(400, '需求描述过长，请控制在 10000 字以内');
 
-      const { data, warnings } = await generateErFromRequirement(prompt);
+      const mode = readString(req.body?.mode).trim() === 'full' ? 'full' : 'core';
+      const config = llmOverrideFromRequest(req);
+      const { data, warnings } = await generateErFromRequirement(prompt, { mode, config });
       res.json(ok(data, { warnings }));
     }),
   );
@@ -106,7 +119,23 @@ export function createApiRouter(): Router {
       const hint = readString(req.body?.hint).trim();
       if (hint.length > 20000) throw new HttpError(400, '补充说明过长，请控制在 20000 字以内');
 
-      const { data, warnings } = await generateErCompletion(entities, hint);
+      const config = llmOverrideFromRequest(req);
+      const { data, warnings } = await generateErCompletion(entities, hint, config);
+      res.json(ok(data, { warnings }));
+    }),
+  );
+
+  /** 自然语言 → 功能结构树（系统 / 模块 / 功能，层级深度由描述决定） */
+  router.post(
+    '/ai/generate-module-tree',
+    guard,
+    asyncHandler(async (req, res) => {
+      const prompt = readString(req.body?.prompt).trim();
+      if (!prompt) throw new HttpError(400, '请提供系统描述（字段 prompt）');
+      if (prompt.length > 100000) throw new HttpError(400, '系统描述过长，请控制在 10000 字以内');
+
+      const config = llmOverrideFromRequest(req);
+      const { data, warnings } = await generateModuleTreeFromRequirement(prompt, config);
       res.json(ok(data, { warnings }));
     }),
   );
@@ -133,7 +162,8 @@ export function createApiRouter(): Router {
       const hint = readString(req.body?.hint).trim();
       if (hint.length > 20000) throw new HttpError(400, '补充说明过长，请控制在 2000 字以内');
 
-      const { data, warnings } = await generateRelationships(sanitized, hint);
+      const config = llmOverrideFromRequest(req);
+      const { data, warnings } = await generateRelationships(sanitized, hint, config);
       res.json(ok(data, { warnings }));
     }),
   );

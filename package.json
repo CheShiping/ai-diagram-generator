@@ -1,9 +1,9 @@
 {
   "name": "sql2er",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "SQL / 自然语言转陈式 ER 图工具",
+  "description": "SQL / 自然语言转陈式 ER 图，以及系统功能结构图工具",
   "scripts": {
     "dev": "concurrently -k -n server,client -c cyan,green \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/index.ts",

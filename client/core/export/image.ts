@@ -12,7 +12,10 @@ export interface SvgExportResult {
 }
 
 /** 把当前画布序列化成独立可用的 SVG 文本（去掉缩放变换、加白底与 viewBox）。 */
-export function serializeSvg(svg: SVGSVGElement, nodes: RenderNode[]): SvgExportResult {
+export function serializeSvg(
+  svg: SVGSVGElement,
+  nodes: Array<Pick<RenderNode, 'x' | 'y' | 'w' | 'h'>>,
+): SvgExportResult {
   const clone = svg.cloneNode(true) as SVGSVGElement;
 
   // 去掉 zoom / pan 变换，导出为完整视图

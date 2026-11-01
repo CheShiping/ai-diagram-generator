@@ -15,14 +15,23 @@ export class LlmError extends Error {
   }
 }
 
-export function readLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig {
-  const baseUrl = (env.LLM_BASE_URL || '').trim().replace(/\/+$/, '');
-  const apiKey = (env.LLM_API_KEY || '').trim();
-  const model = (env.LLM_MODEL || '').trim();
+export interface LlmConfigOverride {
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+}
+
+export function readLlmConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  override: LlmConfigOverride = {},
+): LlmConfig {
+  const baseUrl = (override.baseUrl || env.LLM_BASE_URL || '').trim().replace(/\/+$/, '');
+  const apiKey = (override.apiKey || env.LLM_API_KEY || '').trim();
+  const model = (override.model || env.LLM_MODEL || '').trim();
 
   if (!baseUrl || !apiKey || !model) {
     throw new LlmError(
-      '未配置大模型：请在环境变量中设置 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（参考 .env.example）',
+      '未配置大模型：请在界面「模型设置」中填写，或设置环境变量 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（参考 .env.example）',
     );
   }
 
