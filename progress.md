@@ -35,6 +35,11 @@
 - [x] `npm run typecheck` — 通过。
 - [x] `npm test` — 通过：9 个测试文件、92 项测试；其中 `tests/module-tree.test.ts` 17 项、`tests/module-layout.test.ts` 9 项、`tests/module-drawio.test.ts` 2 项。
 - [x] `npm run build` — 通过：Vite production build（2212 modules）。
+- [x] 2026-11-01 部署 Vercel（项目 `csps-projects-1abeb98f/ai-diagram-generator`，生产域名 `ai-diagram-generator-mu.vercel.app`）并修复两个线上问题：
+  - 修复 1：`@vercel/node` 不会把 `api/` 之外的相对导入打进函数包，`api/[...all].ts` 线上报 `ERR_MODULE_NOT_FOUND`。方案：入口移到 `server/vercel.ts`，新增 `npm run build:api`（esbuild `--bundle --packages=external`）生成自包含的 `api/index.js`（产物需提交进仓库，`functions` 校验发生在 buildCommand 之前）。
+  - 修复 2：Vercel 的 catch-all 函数名（`api/[...all].js`）只匹配单段路径，`/api/ai/generate-er` 等多级路径在 Vercel 层 404。方案：函数改固定名 `api/index.js`，`vercel.json` 增加 `rewrites` 把 `/api/(.*)` 转发到 `/api/index`，函数内拿到原始路径，Express 路由不变。
+  - 线上验证：`GET /api/health` → 200 JSON；`POST /api/parseSQL` → 200 解析成功；`POST /api/ai/generate-er` → 200 真实大模型生成实体/联系；未知多级路径返回 API 信封 JSON 404。
+  - Git push 自动部署已配置（Vercel GitHub App 已授权 `CheShiping/ai-diagram-generator`）。
 - [x] 浏览器实测功能结构图模式（http://127.0.0.1:5173）：
   - 顶部显示「系统功能结构图 v2.0」，模式切换选中「功能结构图」；
   - 根节点「外卖配送平台」129.6×40，4 个一级模块统一 100×38，二级功能统一 32×96；

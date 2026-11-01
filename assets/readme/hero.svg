@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="100%" role="img" aria-label="sql2er：把 SQL 建表语句或自然语言需求转换为陈式 ER 图与功能结构图">
+  <title>sql2er：把 SQL 建表语句或自然语言需求转换为陈式 ER 图与功能结构图</title>
+  <style>
+    .paper { fill: #ffffff; }
+    .ink   { fill: #0a0a0a; }
+    .muted { fill: #6f6f6f; }
+    .line  { stroke: #0a0a0a; }
+    @media (prefers-color-scheme: dark) {
+      .paper { fill: #0d1117; }
+      .ink   { fill: #e8e8e8; }
+      .muted { fill: #9aa0a6; }
+      .line  { stroke: #e8e8e8; }
+    }
+  </style>
+
+  <rect class="paper" x="0" y="0" width="1200" height="420"/>
+
+  <!-- 左列：标题区 -->
+  <text class="muted" x="64" y="112" font-family="'PingFang SC','Microsoft YaHei','Segoe UI',system-ui,sans-serif" font-size="17" letter-spacing="4">SQL 建表语句 · 自然语言 · DRAW.IO 导入</text>
+  <text class="ink" x="60" y="204" font-family="'Segoe UI','PingFang SC',system-ui,sans-serif" font-size="88" font-weight="800" letter-spacing="-2">sql2er</text>
+  <text class="ink" x="64" y="252" font-family="'PingFang SC','Microsoft YaHei','Segoe UI',system-ui,sans-serif" font-size="27" font-weight="600">SQL / 自然语言 → 陈式 ER 图 &amp; 功能结构图</text>
+  <text class="muted" x="64" y="292" font-family="'PingFang SC','Microsoft YaHei','Segoe UI',system-ui,sans-serif" font-size="19">把 MySQL 建表语句或一段需求描述，变成规范、可编辑的图。</text>
+
+  <!-- 特性徽章 -->
+  <g font-family="'PingFang SC','Microsoft YaHei','Segoe UI',system-ui,sans-serif" font-size="17">
+    <rect class="line" x="64" y="322" width="150" height="36" fill="none" stroke-width="1.3"/>
+    <text class="ink" x="139" y="346" text-anchor="middle">在线使用 · 免费</text>
+    <rect class="line" x="226" y="322" width="146" height="36" fill="none" stroke-width="1.3"/>
+    <text class="ink" x="299" y="346" text-anchor="middle">无水印 · 无登录</text>
+    <rect class="line" x="384" y="322" width="216" height="36" fill="none" stroke-width="1.3"/>
+    <text class="ink" x="492" y="346" text-anchor="middle">导出 draw.io / PNG / SVG</text>
+  </g>
+
+  <!-- 右列：项目原生迷你陈式 ER 图（学生 M — 选修 — N 课程） -->
+  <!-- 实体：学生 -->
+  <line class="line" x1="630" y1="128" x2="668" y2="180" stroke-width="1.3"/>
+  <line class="line" x1="746" y1="116" x2="716" y2="180" stroke-width="1.3"/>
+  <ellipse class="paper line" cx="630" cy="108" rx="48" ry="20" stroke-width="1.3"/>
+  <ellipse class="paper line" cx="746" cy="96" rx="44" ry="20" stroke-width="1.3"/>
+  <rect class="paper line" x="640" y="180" width="112" height="46" stroke-width="2.2"/>
+  <text class="ink" x="630" y="115" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="20">学号</text>
+  <line class="line" x1="612" y1="122" x2="648" y2="122" stroke-width="1.3"/>
+  <text class="ink" x="746" y="103" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="20">姓名</text>
+  <text class="ink" x="696" y="210" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="21" font-weight="600">学生</text>
+
+  <!-- 联系：选修 -->
+  <line class="line" x1="752" y1="203" x2="818" y2="203" stroke-width="1.3"/>
+  <line class="line" x1="914" y1="203" x2="984" y2="203" stroke-width="1.3"/>
+  <polygon class="paper line" points="866,169 916,203 866,237 816,203" stroke-width="1.3"/>
+  <text class="ink" x="866" y="211" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="20">选修</text>
+  <text class="ink" x="778" y="192" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="18">M</text>
+  <text class="ink" x="942" y="192" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="18">N</text>
+
+  <!-- 实体：课程 -->
+  <line class="line" x1="962" y1="128" x2="1012" y2="180" stroke-width="1.3"/>
+  <line class="line" x1="1078" y1="116" x2="1062" y2="180" stroke-width="1.3"/>
+  <ellipse class="paper line" cx="962" cy="108" rx="44" ry="20" stroke-width="1.3"/>
+  <ellipse class="paper line" cx="1078" cy="96" rx="44" ry="20" stroke-width="1.3"/>
+  <rect class="paper line" x="984" y="180" width="112" height="46" stroke-width="2.2"/>
+  <text class="ink" x="962" y="115" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="20">课号</text>
+  <line class="line" x1="944" y1="122" x2="980" y2="122" stroke-width="1.3"/>
+  <text class="ink" x="1078" y="103" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="20">课名</text>
+  <text class="ink" x="1040" y="210" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="21" font-weight="600">课程</text>
+
+  <!-- 图例 -->
+  <text class="muted" x="880" y="392" text-anchor="middle" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="18">实体 → 矩形　·　属性 → 椭圆（主键加下划线）　·　联系 → 菱形（1 / N / M）</text>
+</svg>

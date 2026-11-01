@@ -1,19 +1,34 @@
-# sql2er · SQL / ER 图 & 功能结构图
+<div align="center">
+  <img src="assets/readme/hero.svg" alt="sql2er：把 SQL 建表语句或自然语言需求转换为陈式 ER 图与功能结构图" width="100%">
+</div>
 
-把 MySQL 建表语句或一段业务需求，转换成**陈式（Chen）ER 图**：
+<div align="center">
 
-- **实体** → 矩形
-- **属性** → 椭圆（主键加下划线）
-- **联系** → 菱形（两端标注基数 `1 / N / M`）
+[![在线演示](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E6%BC%94%E7%A4%BA-ai--diagram--generator--csp.vercel.app-000?logo=vercel&logoColor=white)](https://ai-diagram-generator-csp.vercel.app/)
+[![Vue](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![tests](https://img.shields.io/badge/vitest-92%20passing-729B1B?logo=vitest&logoColor=white)](#开发命令)
 
-也可以把系统描述、缩进大纲或 Markdown 标题转换成**功能结构图**（模块图）：
+**👉 [ai-diagram-generator-csp.vercel.app](https://ai-diagram-generator-csp.vercel.app/)**
 
-- 第 1–2 层（系统 / 模块）横排文字
-- 第 3 层起（功能 / 子功能）逐字竖排
-- 同层所有矩形按本层最长文案统一宽高，内容水平垂直居中
-- 黑白线稿：白底、黑色 1.5px 直角矩形、无箭头直角折线
+</div>
+
+## 这是什么
+
+sql2er 把两类输入变成两种图，全程浏览器出图、随时导出：
+
+- **SQL / 自然语言 → 陈式（Chen）ER 图**
+  - **实体** → 矩形
+  - **属性** → 椭圆（主键加下划线）
+  - **联系** → 菱形（两端标注基数 `1 / N / M`）
+- **系统描述 / 缩进大纲 / Markdown 标题 → 功能结构图（模块图）**
+  - 第 1–2 层（系统 / 模块）横排文字，第 3 层起（功能 / 子功能）逐字竖排
+  - 黑白线稿：白底、黑色 1.5px 直角矩形、无箭头直角折线
 
 无水印、无付费墙、无登录。顶部可在「ER 图 / 功能结构图」之间切换。
+
+> SQL 解析、结构树编辑和大纲解析**不需要任何配置**；自然语言生成与 AI 补全需要模型 —— 线上使用时点右上角「模型设置」直接填写即可，本地部署见[快速开始](#快速开始)。
 
 ## 功能
 
@@ -30,7 +45,7 @@
 | PNG | 2 倍分辨率位图 |
 | SVG | 矢量图 |
 
-布局默认 **智能布局**（复刻 huahub）：实体作为 hub，联系菱形落在两实体的轴线上，属性按联系方向分槽、由内向外扫描半径并避让节点与连线，十几个到二十几个属性会贴着矩形形成紧凑的多层环，再做物理迭代与交叉最小化。另有 **环形网格**、**力导向**（d3-force）、**分层**（elkjs layered）可切换。从 draw.io 导入后额外提供「导入原位置」，保留文件里的坐标。
+布局默认 **智能布局**：实体作为 hub，联系菱形落在两实体的轴线上，属性按联系方向分槽、由内向外扫描半径并避让节点与连线，十几个到二十几个属性会贴着矩形形成紧凑的多层环，再做物理迭代与交叉最小化。另有 **环形网格**、**力导向**（d3-force）、**分层**（elkjs layered）可切换。从 draw.io 导入后额外提供「导入原位置」，保留文件里的坐标。
 
 画布操作：滚轮缩放、右键拖拽平移、左键拖拽节点或框选、Shift 多选、双击改名、Ctrl+Z 撤销；拖动实体/联系会带着其属性一起移动，框选多个节点后可整组拖动。
 
@@ -104,23 +119,29 @@ GET  /api/health
 AI 接口还可以带 `x-llm-base-url`、`x-llm-api-key`、`x-llm-model` 请求头，用于覆盖服务端模型配置（界面「模型设置」就是这些请求头的封装）。
 
 ```bash
-curl -X POST http://127.0.0.1:3001/api/parseSQL \
+curl -X POST https://ai-diagram-generator-csp.vercel.app/api/parseSQL \
   -H 'Content-Type: application/json' \
   -d '{"sql":"CREATE TABLE t (id int PRIMARY KEY COMMENT \"编号\") COMMENT=\"表\";"}'
 ```
 
 ## 部署到 Vercel
 
-仓库已带 `vercel.json`，前端静态托管 + `api/[...all].ts` 作为 serverless 入口复用同一个 Express 应用：
+仓库已带 `vercel.json`：前端静态托管 + 单个 serverless 函数复用同一个 Express 应用。入口源文件是 `server/vercel.ts`，由 esbuild 打包为自包含的 `api/index.js`（构建产物，**已提交入库**），所有 `/api/*` 请求经 `rewrites` 转发到它。
 
 ```bash
-vercel --prod
+npm i -g vercel
+vercel link              # 首次：创建/关联 Vercel 项目
+npm run build:api        # 改动 server/ 后重新生成 api/index.js
+git commit && git push   # push 自动触发部署（已配置 GitHub 集成）
 ```
 
-在 Vercel 项目设置里配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（可选 `ACCESS_CODE`）即可。
+在 Vercel 项目的 Settings → Environment Variables 里配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`（可选 `ACCESS_CODE`、`RATE_LIMIT_PER_MIN`）即可。
 
 注意事项：
-- 函数最大执行时长设为 60s（LLM 生成通常 5–30s）。
+
+- **改动 `server/` 下任何代码后，必须先 `npm run build:api` 更新 `api/index.js` 并一并提交**，否则线上函数不会变化。
+- 不要把函数改回 `api/[...all].ts` 形式：`@vercel/node` 不会打包 `api/` 目录之外的相对导入（线上 `ERR_MODULE_NOT_FOUND`）；catch-all 文件名也只匹配单段路径（`/api/ai/generate-er` 会在 Vercel 层 404）。当前的「esbuild 自包含打包 + rewrites」方案已绕开这两个坑。
+- `vercel.json` 中函数 `maxDuration` 为 60s（LLM 生成通常 5–30s；Hobby 计划上限 60s）。
 - 限流基于内存，多实例间不共享，属轻量防护。
 - SQL 解析首次调用需加载 WASM，冷启动约几百毫秒。
 
@@ -128,8 +149,9 @@ vercel --prod
 
 ```
 sql2er/
-├── api/[...all].ts        # Vercel serverless 入口
+├── api/index.js           # Vercel serverless 函数（build:api 产物，需提交入库）
 ├── server/                # Express + TypeScript
+│   ├── vercel.ts          # serverless 入口源文件（esbuild 打包为 api/index.js）
 │   ├── app.ts             # 应用装配（本地与 serverless 共用）
 │   ├── routes/            # /api/parseSQL、/api/ai/*
 │   ├── services/          # sql-parser / ai-client / ai / prompts / rate-limit
@@ -141,6 +163,7 @@ sql2er/
 │   ├── core/              # theme / geometry / layout / smart-layout / module-layout / export / import
 │   ├── stores/            # diagram.ts / module.ts
 │   └── http/api.ts
+├── assets/readme/         # README 视觉素材（hero.svg）
 ├── tests/                 # vitest：解析、转换、布局、draw.io 导入导出、功能树
 ├── vercel.json
 └── vite.config.ts
@@ -155,6 +178,7 @@ npm run dev:client   # 仅前端
 npm test             # 单元测试
 npm run typecheck    # 前端 vue-tsc + 后端 tsc
 npm run build        # 构建前端到 dist/
+npm run build:api    # 打包 serverless 入口到 api/index.js（改动 server/ 后执行）
 ```
 
 ## 设计说明
