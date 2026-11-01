@@ -5,7 +5,7 @@
   "installCommand": "npm install",
   "functions": {
     "api/[...all].js": {
-      "maxDuration": 600,
+      "maxDuration": 270,
       "memory": 1024
     }
   }
