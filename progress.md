@@ -34,6 +34,11 @@
   - 新增 `client/public/robots.txt`（允许所有爬虫 + 指向 sitemap）与 `client/public/sitemap.xml`（单页站点，priority 1.0）。
   - 新增 `client/public/favicon.svg`（实体矩形-联系菱形-属性椭圆示意图标）并在 head 引用。
   - 2026-11-01 Bing 站长验证码已填入 `msvalidate.01`（`43125117F95CBED0184CB31C96A73B70`），`npm run build` 通过（`dist/index.html` 2.72 kB）；待 push 部署后在 Bing 站长工具完成验证并提交 sitemap。
+  - 2026-11-01 收录二次优化（用户反馈提交 sitemap 后仍搜不到）：
+    - `meta keywords` 扩充至 20 个：补充实体关系图、E-R图绘制、MySQL ER图、表结构转ER图、ER模型生成器、功能结构图生成器等长尾词与中文变体。
+    - `index.html` 的 `#app` 容器内新增静态 SEO 内容（h1 + 功能介绍 + FAQ，含核心关键词）：Bingbot 抓 HTML 时不执行 JS，纯 SPA 之前对爬虫近乎空白；Vue 挂载（`app.mount('#app')`）会替换容器内容，运行时无冲突。产物 `index.html` 由 2.72 kB 增至 4.58 kB。
+    - 新增 IndexNow 密钥文件 `client/public/181fe86e648b5acc63db8d05b7651c5a.txt`（Bing 支持的即时推送协议），部署后向 `https://api.indexnow.org/indexnow?url=https://ai-diagram-generator-csp.vercel.app/&key=181fe86e648b5acc63db8d05b7651c5a` 提交一次即可主动通知抓取。
+    - `npm run build` 通过，确认密钥文件、robots.txt、sitemap.xml、favicon.svg 均在 `dist/`。
 
 ## 验证证据
 

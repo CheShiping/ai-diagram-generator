@@ -7,7 +7,7 @@
     <meta name="description" content="免费的在线 SQL 转 ER 图工具：粘贴建表语句或自然语言描述，自动生成陈式（Chen）ER 图与系统功能结构图，支持智能布局、draw.io、PNG、SVG 导出，无需注册登录。" />
     <meta
       name="keywords"
-      content="SQL转ER图, ER图生成器, ER图在线工具, 陈式ER图, 数据库建模, 自然语言生成ER图, 功能结构图, draw.io, 数据库关系图, sql2er"
+      content="SQL转ER图, ER图生成器, ER图在线工具, 陈式ER图, Chen ER图, 实体关系图, E-R图绘制, 数据库建模工具, 数据库设计工具, MySQL ER图, 表结构转ER图, 自然语言生成ER图, ER模型生成器, 功能结构图生成器, 系统功能结构图, 模块结构图, 数据库关系图, ER图导出PNG, draw.io导出, sql2er"
     />
     <meta name="author" content="sql2er" />
     <meta name="robots" content="index, follow" />
@@ -50,8 +50,30 @@
     </script>
   </head>
   <body>
-    <div id="app"></div>
-    <noscript>sql2er 需要启用 JavaScript 才能在浏览器中生成 ER 图与功能结构图。</noscript>
+    <!-- Vue 挂载后此容器会被应用替换；保留静态内容供 Bingbot 等不执行 JS 的爬虫抓取 -->
+    <div id="app">
+      <h1>SQL 转 ER 图在线工具 - 自然语言生成陈式ER图与功能结构图</h1>
+      <p>
+        sql2er 是免费的在线数据库建模工具：粘贴 SQL 建表语句（MySQL）或自然语言需求描述，
+        自动生成陈式（Chen）ER 图，包括实体矩形、属性椭圆、主键下划线、联系菱形与 1/N/M 基数标注；
+        也支持输入系统描述或 Markdown 大纲，一键生成系统功能结构图。
+        支持智能布局、环形网格、力导向、分层四种布局算法，可导出 draw.io、PNG、SVG，无水印、无付费墙、无需注册登录。
+      </p>
+      <h2>核心功能</h2>
+      <ul>
+        <li>SQL 转 ER 图：解析 CREATE TABLE 语句，提取表名、中文注释、主键、外键与多对多关联表</li>
+        <li>自然语言生成 ER 图：输入业务需求描述，AI 生成实体、属性与联系</li>
+        <li>AI 补全：基于现有图推断缺失联系与属性</li>
+        <li>功能结构图：结构树编辑、缩进/Markdown 大纲解析、AI 生成模块层级</li>
+        <li>导入导出：导入 .drawio 文件，导出可编辑 .drawio、高清 PNG、矢量 SVG</li>
+      </ul>
+      <h2>常见问题</h2>
+      <ul>
+        <li>怎么把 SQL 表结构画成 ER 图？—— 粘贴建表语句（含 COMMENT 中文注释效果最佳），自动生成可拖拽编辑的陈式 ER 图并导出。</li>
+        <li>支持哪些数据库方言？—— 以 MySQL 语法为主，兼容常见 CREATE TABLE / ALTER TABLE 外键写法。</li>
+        <li>是免费的吗？—— 免费，无水印、无付费墙、无登录。</li>
+      </ul>
+    </div>
     <script type="module" src="/main.ts"></script>
   </body>
 </html>
